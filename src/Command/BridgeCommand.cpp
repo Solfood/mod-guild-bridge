@@ -70,8 +70,13 @@ void Clone(ObjectGuid source, std::string const& target, std::string const& acco
                     LOG_ERROR("module.guildbridge", "GUILDBRIDGE clone {} failed: {}", target, why);
                     return;
                 }
-                LOG_INFO("module.guildbridge", "GUILDBRIDGE clone {} guid={}", target,
-                         sCharacterCache->GetCharacterGuidByName(target).GetCounter());
+                BotDumps::ConfirmLoaded(target, [target](bool loaded, uint32 guid) {
+                    if (loaded)
+                        LOG_INFO("module.guildbridge", "GUILDBRIDGE clone {} guid={}", target, guid);
+                    else
+                        LOG_ERROR("module.guildbridge", "GUILDBRIDGE clone {} failed: the load was rolled back "
+                                  "(see the DB errors log)", target);
+                });
             });
     });
 }

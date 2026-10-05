@@ -37,6 +37,11 @@ public:
     // World thread. Loads a dump onto `account` as `name`; guid 0 = a new guid.
     static bool LoadOnWorldThread(std::string const& dump, uint32 account, std::string const& name, uint32 guid,
                                   std::string& error);
+    // World thread, right after a successful LoadOnWorldThread: the load is one async transaction, so it can
+    // still fail (for example a duplicate key). `done(ok)` runs on the world thread once that transaction has
+    // been applied (one async writer: a query queued after it returns after it). On failure the character
+    // cache entry the load added is dropped again, so the name is free.
+    static void ConfirmLoaded(std::string const& name, std::function<void(bool ok, uint32 guid)> done);
     void RunRetention();  // world thread
     uint64 Taken() const { return _taken; }
     uint64 Failed() const { return _failed; }

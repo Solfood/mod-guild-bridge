@@ -12,10 +12,12 @@
 #include "GuildMgr.h"
 #include "GuildmasterDatabase.h"
 #include "Log.h"
+#include "ObjectMgr.h"
 #include "ObjectAccessor.h"
 #include "Player.h"
 #include "PlayerDump.h"
 #include "QueryCallback.h"
+#include "StringFormat.h"
 #include <ctime>
 
 BotDumps& BotDumps::Instance()
@@ -141,6 +143,10 @@ void BotDumps::WorkerLoop()
 bool BotDumps::LoadOnWorldThread(std::string const& dump, uint32 account, std::string const& name, uint32 guid,
                                  std::string& error)
 {
+    // Core quirk: _hiPetNumber starts at "next free" but GeneratePetNumber() pre-increments, so after any pet was
+    // made it holds the LAST USED id, and the loader numbers the dump's pets from it (duplicate key, whole load
+    // rolled back). Taking one number first makes the loader start on a number nobody holds.
+    sObjectMgr->GeneratePetNumber();
     DumpReturn const result = PlayerDumpReader().LoadDumpFromString(dump, account, name, guid);
     if (result != DUMP_SUCCESS)
     {
@@ -152,6 +158,23 @@ bool BotDumps::LoadOnWorldThread(std::string const& dump, uint32 account, std::s
     if (ObjectGuid const loaded = sCharacterCache->GetCharacterGuidByName(name))
         CharacterDatabase.Execute("UPDATE characters SET online = 0 WHERE guid = {}", loaded.GetCounter());
     return true;
+}
+
+void BotDumps::ConfirmLoaded(std::string const& name, std::function<void(bool ok, uint32 guid)> done)
+{
+    ObjectGuid const guid = sCharacterCache->GetCharacterGuidByName(name);
+    if (!guid)
+    {
+        done(false, 0);
+        return;
+    }
+    BridgeAsync::Add(CharacterDatabase.AsyncQuery(Acore::StringFormat(
+        "SELECT 1 FROM characters WHERE guid = {}", guid.GetCounter())).WithCallback(
+        [guid, name, done = std::move(done)](QueryResult result) {
+            if (!result)
+                sCharacterCache->DeleteCharacterCacheEntry(guid, name);
+            done(result != nullptr, guid.GetCounter());
+        }));
 }
 
 void BotDumps::RunRetention()
