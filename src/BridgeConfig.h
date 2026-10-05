@@ -24,6 +24,14 @@ struct BridgeConfig
     uint32 eventFlushMs = 1000;     // GuildBridge.Events.FlushMs: how often queued events are written
     uint32 eventQueueCap = 10000;   // GuildBridge.Events.QueueCap: queued events beyond this are dropped (counted)
     uint32 firstsLevelStep = 10;    // GuildBridge.Firsts.LevelStep: level firsts at 10, 20, ... (0 = none)
+    // GuildBridge.Dungeon.* (run_dungeon orders, Task 11)
+    float runTravelMaxDistance = 1500.f;  // .TravelMaxDistance: travel (not teleport) when everyone is this close
+    uint32 runTravelTimeoutS = 1800;      // .TravelTimeoutS: whoever has not arrived by then is teleported
+    uint32 runDeadWaitS = 600;            // .DeadWaitS: how long the group waits for a member who died on the way
+    uint32 runLevelBelow = 5;             // .LevelBelow / .LevelAbove: the level band around the recommended level
+    uint32 runLevelAbove = 5;
+    uint32 runMaxConcurrent = 3;          // .MaxConcurrentRuns: runs at the same time (each costs world tick time)
+    uint32 runOverallTimeoutS = 9000;     // .OverallTimeoutS: a run with no result by then is abandoned
 
     // "host;port;user;password;database" -> "database" ("" when the string has fewer than 5 fields).
     static std::string DatabaseNameOf(std::string const& info);

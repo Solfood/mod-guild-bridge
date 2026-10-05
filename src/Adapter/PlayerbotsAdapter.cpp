@@ -4,6 +4,7 @@
 
 #include "PlayerbotsAdapter.h"
 
+#include "MotionMaster.h"
 #include "Player.h"
 #include "PlayerbotAI.h"
 #include "PlayerbotAIConfig.h"
@@ -15,6 +16,7 @@
 #include "ProfessionPicker.h"
 #include "RaisingMgr.h"
 #include "RandomPlayerbotMgr.h"
+#include <algorithm>
 #include <cctype>
 
 bool PlayerbotsAdapter::IsBot(Player* player) { return player && GET_PLAYERBOT_AI(player); }
@@ -133,4 +135,56 @@ void PlayerbotsAdapter::SetFocus(Player* bot, uint8 focus)
 {
     if (PlayerbotAI* botAI = GET_PLAYERBOT_AI(bot))
         botAI->rpgInfo.focus = focus;
+}
+
+void PlayerbotsAdapter::GoTo(Player* bot, GuildBridge::Spot const& spot)
+{
+    PlayerbotAI* botAI = GET_PLAYERBOT_AI(bot);
+    if (botAI && sRandomPlayerbotMgr.IsRandomBot(bot))
+    {
+        // New-RPG "go to camp": MoveFarTo with mounts, paths and the stuck fallback; it fights what attacks it.
+        // Re-set when the bot dropped it or is on a camp trip of its own (a town errand).
+        auto const* camp = std::get_if<NewRpgInfo::GoCamp>(&botAI->rpgInfo.data);
+        if (!camp || camp->pos.GetMapId() != spot.map || camp->pos.GetExactDist2d(spot.x, spot.y) > 5.f)
+            botAI->rpgInfo.ChangeToGoCamp(WorldPosition(spot.map, spot.x, spot.y, spot.z));
+        return;
+    }
+    // Clones: pathfinding toward the spot, in legs of at most 150 yards (long paths are cut by the path generator).
+    float const dist = bot->GetExactDist2d(spot.x, spot.y);
+    float const step = std::min(dist, 150.f) / std::max(dist, 0.1f);
+    float const nx = bot->GetPositionX() + (spot.x - bot->GetPositionX()) * step;
+    float const ny = bot->GetPositionY() + (spot.y - bot->GetPositionY()) * step;
+    float nz = step >= 1.f ? spot.z : bot->GetPositionZ();
+    if (step < 1.f)
+        bot->UpdateAllowedPositionZ(nx, ny, nz);
+    bot->SetStandState(UNIT_STAND_STATE_STAND);
+    bot->GetMotionMaster()->MovePoint(0, nx, ny, nz);
+}
+
+void PlayerbotsAdapter::Park(Player* bot)
+{
+    if (PlayerbotAI* botAI = GET_PLAYERBOT_AI(bot))
+        if (sRandomPlayerbotMgr.IsRandomBot(bot))
+        {
+            if (botAI->rpgInfo.GetStatus() != RPG_REST)
+                botAI->rpgInfo.ChangeToRest();
+            return;
+        }
+    if (bot->GetMotionMaster()->GetCurrentMovementGeneratorType() == POINT_MOTION_TYPE)
+    {
+        bot->GetMotionMaster()->Clear();
+        bot->GetMotionMaster()->MoveIdle();
+    }
+}
+
+void PlayerbotsAdapter::ClearGoTo(Player* bot)
+{
+    if (PlayerbotAI* botAI = GET_PLAYERBOT_AI(bot))
+        if (sRandomPlayerbotMgr.IsRandomBot(bot))
+        {
+            botAI->rpgInfo.ChangeToIdle();
+            return;
+        }
+    if (bot->GetMotionMaster()->GetCurrentMovementGeneratorType() == POINT_MOTION_TYPE)
+        bot->GetMotionMaster()->Clear();
 }

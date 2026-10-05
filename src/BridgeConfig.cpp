@@ -26,6 +26,14 @@ void BridgeConfig::Load()
     eventFlushMs = std::max<uint32>(100, sConfigMgr->GetOption<uint32>("GuildBridge.Events.FlushMs", 1000));
     eventQueueCap = sConfigMgr->GetOption<uint32>("GuildBridge.Events.QueueCap", 10000);
     firstsLevelStep = sConfigMgr->GetOption<uint32>("GuildBridge.Firsts.LevelStep", 10);
+    runTravelMaxDistance = sConfigMgr->GetOption<float>("GuildBridge.Dungeon.TravelMaxDistance", 1500.f);
+    runTravelTimeoutS = std::max<uint32>(60, sConfigMgr->GetOption<uint32>("GuildBridge.Dungeon.TravelTimeoutS", 1800));
+    runDeadWaitS = sConfigMgr->GetOption<uint32>("GuildBridge.Dungeon.DeadWaitS", 600);
+    runLevelBelow = sConfigMgr->GetOption<uint32>("GuildBridge.Dungeon.LevelBelow", 5);
+    runLevelAbove = sConfigMgr->GetOption<uint32>("GuildBridge.Dungeon.LevelAbove", 5);
+    runMaxConcurrent = sConfigMgr->GetOption<uint32>("GuildBridge.Dungeon.MaxConcurrentRuns", 3);
+    runOverallTimeoutS =
+        std::max<uint32>(600, sConfigMgr->GetOption<uint32>("GuildBridge.Dungeon.OverallTimeoutS", 9000));
 }
 
 std::string BridgeConfig::DatabaseNameOf(std::string const& info)

@@ -5,6 +5,7 @@
 #include "BotDumps.h"
 #include "BridgeAsync.h"
 #include "BridgeConfig.h"
+#include "DungeonRunMgr.h"
 #include "EventSink.h"
 #include "Firsts.h"
 #include "GuildRegistry.h"
@@ -37,6 +38,7 @@ public:
         Firsts::Instance().LoadAtStartup();
         BotDumps::Instance().Start();
         RestoreMgr::Instance().RecoverAtStartup();  // first: it decides what happens to cut restores
+        DungeonRunMgr::Instance().LoadAtStartup();  // entrances; runs cut by the restart end as abandoned
         OrderRunner::Instance().RecoverAtStartup();
         StateWriter::Instance().LoadFocusAtStartup();
     }
@@ -51,6 +53,7 @@ public:
         SimpleOrders::Update(diff);
         OrderRunner::Instance().Update(diff);
         RestoreMgr::Instance().Update(diff);
+        DungeonRunMgr::Instance().Update(diff);
         StateWriter::Instance().Update(diff);
         _flushInMs = _flushInMs > diff ? _flushInMs - diff : 0;
         if (!_flushInMs)

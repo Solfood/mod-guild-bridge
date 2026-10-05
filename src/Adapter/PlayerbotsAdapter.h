@@ -7,6 +7,7 @@
 
 #include "Define.h"
 #include "ObjectGuid.h"
+#include "TravelRules.h"
 #include <string>
 #include <vector>
 
@@ -51,6 +52,13 @@ std::string RpgStatusName(Player* bot);  // "DO_QUEST", "IDLE", ... (contract §
 uint8 DurabilityPct(Player* bot);        // 0-100 (playerbots "durability" value), 100 without AI
 uint8 GetFocus(Player* bot);             // fork NewRpgInfo::focus (0-5), 0 without AI
 void SetFocus(Player* bot, uint8 focus);  // the fork forgets it at logout: the bridge re-applies it
+
+// Dungeon-run travel (Task 11). World thread; call GoTo again every few seconds until the bot is there.
+// Population bots use playerbots' own "go to camp" activity (paths, mounts, fights what attacks it); clones, which
+// have no new-RPG brain, walk with pathfinding in legs of at most 150 yards.
+void GoTo(Player* bot, GuildBridge::Spot const& spot);
+void Park(Player* bot);      // arrived: stay put
+void ClearGoTo(Player* bot);  // back to its normal life
 }  // namespace PlayerbotsAdapter
 
 #endif

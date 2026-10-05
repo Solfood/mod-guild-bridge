@@ -22,6 +22,7 @@
 #include "PlayerbotsAdapter.h"
 #include "QueryCallback.h"
 #include "RestoreMgr.h"
+#include "RunRegistry.h"
 #include "StateWriter.h"
 #include "StringFormat.h"
 #include <deque>
@@ -216,6 +217,8 @@ std::vector<uint32> Guids(QueryResult const& result)
 
 std::string SimpleOrders::BusyReason(uint32 guid)
 {
+    if (RunRegistry::Instance().RunIdFor(guid))
+        return "bot is in a dungeon run";
     if (RestoreMgr::Instance().IsRestoring(guid))
         return "bot is being restored";
     if (PlayerbotsAdapter::IsHeld(guid))

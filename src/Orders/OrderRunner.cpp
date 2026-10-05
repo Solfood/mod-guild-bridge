@@ -6,6 +6,7 @@
 
 #include "BridgeAsync.h"
 #include "DatabaseEnv.h"
+#include "DungeonRunMgr.h"
 #include "GuildmasterDatabase.h"
 #include "Log.h"
 #include "QueryCallback.h"
@@ -156,8 +157,11 @@ void OrderRunner::Handle(GuildBridge::OrderRow const& row)
         case GuildBridge::OrderType::Restore:
             RestoreMgr::Instance().Begin(order, [id](OrderResult const& result) { Finish(id, result); });
             break;
+        case GuildBridge::OrderType::RunDungeon:
+            DungeonRunMgr::Instance().Begin(order, [id](OrderResult const& result) { Finish(id, result); });
+            break;
         default:
-            // run_dungeon: Task 11; create_guild, create_founders: 15
+            // create_guild, create_founders: Task 15
             Finish(id, {false, "order type not available yet", ""});
             break;
     }

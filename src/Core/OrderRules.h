@@ -71,7 +71,8 @@ struct ParsedOrder
     uint64_t snapshotId = 0;
     uint32_t takenBefore = 0;
     bool dryRun = false;
-    std::string testFail;  // test seams only: "load", "crash", "purge_timeout", "delete_fail" (restore), "dc" (run_dungeon)
+    // Test seams only: "load", "crash", "purge_timeout", "delete_fail" (restore), "entrance" (run_dungeon).
+    std::string testFail;
 };
 
 inline bool ParseUInt(std::string const& text, uint64_t max, uint64_t& out)
@@ -221,6 +222,10 @@ inline std::string ParseOrder(OrderRow const& row, ParsedOrder& out)
                 out.approach = Approach::Teleport;
             else
                 return "bad value for approach";
+            // Test seam (test-guild bots only, checked by the run): "entrance" stops the run once the party has
+            // gathered at the entrance. Anything else fails the order rather than start a real run.
+            if (!row.testFail.empty() && row.testFail != "entrance")
+                return "bad value for test_fail";
             return "";
         }
         case OrderType::Snapshot:

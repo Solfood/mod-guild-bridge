@@ -73,6 +73,12 @@ int main()
     run.approach = "";
     CHECK_EQ(std::string(""), ParseOrder(run, out));
     CHECK_EQ(static_cast<int>(Approach::Auto), static_cast<int>(out.approach));
+    run.testFail = "entrance";  // the run's one Task 11 test seam
+    CHECK_EQ(std::string(""), ParseOrder(run, out));
+    CHECK_EQ(std::string("entrance"), out.testFail);
+    run.testFail = "entrnce";  // unknown seams fail the order instead of running a real dungeon run
+    CHECK_EQ(std::string("bad value for test_fail"), ParseOrder(run, out));
+    run.testFail = "";
 
     OrderRow snap = Row("snapshot");
     CHECK_EQ(std::string("missing field bot"), ParseOrder(snap, out));

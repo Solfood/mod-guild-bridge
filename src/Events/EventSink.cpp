@@ -6,10 +6,11 @@
 
 #include "BridgeConfig.h"
 #include "GuildmasterDatabase.h"
+#include "RunRegistry.h"
 #include <chrono>
 #include <ctime>
 
-uint64 BridgeRunIdFor(uint32 /*guid*/) { return 0; }  // replaced in Task 11
+uint64 BridgeRunIdFor(uint32 guid) { return RunRegistry::Instance().RunIdFor(guid); }
 
 EventSink& EventSink::Instance()
 {

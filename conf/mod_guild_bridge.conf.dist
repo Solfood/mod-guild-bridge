@@ -79,3 +79,50 @@ GuildBridge.Events.QueueCap = 10000
 #        Default:     10
 
 GuildBridge.Firsts.LevelStep = 10
+
+#    GuildBridge.Dungeon.TravelMaxDistance
+#        Description: A run_dungeon party travels to the dungeon's outdoor entrance (walking and riding, fighting
+#                     on the way) when every member is on the entrance's continent and at most this many yards
+#                     away from it. Otherwise it is teleported there. An order with "approach":"travel" travels
+#                     from any distance on the same continent; "teleport" always teleports.
+#        Default:     1500
+
+GuildBridge.Dungeon.TravelMaxDistance = 1500
+
+#    GuildBridge.Dungeon.TravelTimeoutS
+#        Description: Travel time limit in seconds. Members still on the way then are teleported to the entrance
+#                     (a run_teleport event, reason travel_timeout). At least 60.
+#        Default:     1800
+
+GuildBridge.Dungeon.TravelTimeoutS = 1800
+
+#    GuildBridge.Dungeon.DeadWaitS
+#        Description: A member who dies on the way (a run_ambush event) does its own corpse run; the group waits
+#                     this many seconds for it to be alive again, then the run is abandoned.
+#        Default:     600
+
+GuildBridge.Dungeon.DeadWaitS = 600
+
+#    GuildBridge.Dungeon.LevelBelow
+#    GuildBridge.Dungeon.LevelAbove
+#        Description: Every member's level must be within the dungeon's recommended level (its heroic level for
+#                     a heroic run) minus LevelBelow and plus LevelAbove.
+#        Default:     5, 5
+
+GuildBridge.Dungeon.LevelBelow = 5
+GuildBridge.Dungeon.LevelAbove = 5
+
+#    GuildBridge.Dungeon.MaxConcurrentRuns
+#        Description: Dungeon runs that may be in progress at the same time (each live run costs world tick
+#                     time). An order beyond it fails with "too many dungeon runs in progress (max <n>)". A bot
+#                     is in at most one run at a time. Keep it at or below mod-dungeon-clear's own run limit.
+#        Default:     3
+
+GuildBridge.Dungeon.MaxConcurrentRuns = 3
+
+#    GuildBridge.Dungeon.OverallTimeoutS
+#        Description: A run that has no result after this many seconds is abandoned and its bots are released.
+#                     At least 600.
+#        Default:     9000
+
+GuildBridge.Dungeon.OverallTimeoutS = 9000

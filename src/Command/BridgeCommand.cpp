@@ -10,6 +10,8 @@
 #include "CommandScript.h"
 #include "Creature.h"
 #include "DatabaseEnv.h"
+#include "DcAdapter.h"
+#include "DungeonRunMgr.h"
 #include "EventPayloads.h"
 #include "EventSink.h"
 #include "Guild.h"
@@ -24,6 +26,7 @@
 #include "PlayerbotsAdapter.h"
 #include "QueryCallback.h"
 #include "RestoreMgr.h"
+#include "RunRegistry.h"
 #include "ScriptMgr.h"
 #include "SimpleOrders.h"
 #include "StateWriter.h"
@@ -119,7 +122,7 @@ public:
             EventSink const& events = EventSink::Instance();
             handler->PSendSysMessage("BRIDGE enabled={} version={} db={} world={} snapshots={} snapfail={} events={} "
                                      "dropped={} queued={} flushus={} flushmaxus={} orders={} snapq={} stateus={} "
-                                     "statemaxus={} staterows={} restores={}",
+                                     "statemaxus={} staterows={} restores={} runs={} runbots={}",
                                      BridgeConfig::Get().enable ? 1 : 0, GUILDBRIDGE_VERSION,
                                      GuildmasterDatabaseReady ? 1 : 0, BridgeConfig::Get().worldId,
                                      BotDumps::Instance().Taken(), BotDumps::Instance().Failed(), events.Written(),
@@ -127,11 +130,12 @@ public:
                                      events.MaxFlushUs(), OrderRunner::Instance().Finished(),
                                      SimpleOrders::QueuedSnapshots(), StateWriter::Instance().LastBuildUs(),
                                      StateWriter::Instance().MaxBuildUs(), StateWriter::Instance().LastRows(),
-                                     RestoreMgr::Instance().Queued());
+                                     RestoreMgr::Instance().Queued(), DungeonRunMgr::Instance().Running(),
+                                     RunRegistry::Instance().Bots());
             return true;
         }
         if ((sub == "snapshot" || sub == "clone" || sub == "testbots" || sub == "guild" || sub == "bot" ||
-             sub == "event" || sub == "test" || sub == "order" || sub == "state") &&
+             sub == "event" || sub == "test" || sub == "order" || sub == "state" || sub == "run") &&
             !BridgeConfig::Get().enable)
         {
             handler->PSendSysMessage("BRIDGEERR the bridge is disabled (GuildBridge.Enable = 0)");
@@ -195,6 +199,26 @@ public:
             // in within seconds, faster than a poll can see it offline.
             handler->PSendSysMessage("BRIDGEOK test {} {} was={} now={}", words[1], name, online ? 1 : 0,
                                      ObjectAccessor::FindConnectedPlayer(guid) ? 1 : 0);
+            return true;
+        }
+        if (sub == "run" && words.size() > 2 && words[1] == "entrance")
+        {
+            DcAdapter::DungeonInfo const info = DcAdapter::Find(words[2]);
+            GuildBridge::Spot spot;
+            if (!info.found || !DungeonRunMgr::Instance().EntranceFor(info.mapId, spot))
+            {
+                handler->PSendSysMessage("BRIDGEERR no entrance for {}", words[2]);
+                return false;
+            }
+            handler->PSendSysMessage("BRIDGEENTRANCE map={} x={:.1f} y={:.1f} z={:.1f}", spot.map, spot.x, spot.y,
+                                     spot.z);
+            return true;
+        }
+        if (sub == "run" && words.size() > 2 && words[1] == "cap")  // test seam: until the next restart
+        {
+            uint32 const cap = static_cast<uint32>(std::strtoul(words[2].c_str(), nullptr, 10));
+            DungeonRunMgr::Instance().SetMaxRuns(cap);
+            handler->PSendSysMessage("BRIDGEOK run cap {}", cap);
             return true;
         }
         if (sub == "order" && words.size() > 1 && words[1] == "poll")

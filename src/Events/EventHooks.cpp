@@ -19,6 +19,7 @@
 #include "ObjectMgr.h"
 #include "Player.h"
 #include "PlayerScript.h"
+#include "RunRegistry.h"
 #include "ScriptMgr.h"
 #include "WorldSession.h"
 
@@ -123,6 +124,8 @@ public:
             return;
         PushFor(killed, EventType::Death,
                 DeathPayload({"creature", killer->GetEntry(), 0, killer->GetName(), killer->GetLevel(), WhereOf(killed)}));
+        // A run member's death: the run turns it into a run_ambush event while travelling (Task 11).
+        RunRegistry::Instance().NoteDeath(killed->GetGUID().GetCounter(), killer->GetName(), false);
     }
 
     void OnPlayerPVPKill(Player* killer, Player* killed) override
@@ -130,9 +133,12 @@ public:
         if (!killer || !killed || killer == killed)
             return;
         if (IsOurs(killed))
+        {
             PushFor(killed, EventType::Death,
                     DeathPayload({"player", 0, killer->GetGUID().GetCounter(), killer->GetName(), killer->GetLevel(),
                                   WhereOf(killed)}));
+            RunRegistry::Instance().NoteDeath(killed->GetGUID().GetCounter(), killer->GetName(), true);
+        }
         if (IsOurs(killer))
             PushFor(killer, EventType::PvpKill,
                     PvpKillPayload(killed->GetGUID().GetCounter(), killed->GetName(), killed->GetLevel(), WhereOf(killer)));
@@ -199,9 +205,11 @@ public:
         Party const party = PartyOf(instance);
         if (!party.anyOurs || party.guids.empty())
             return;
-        EventSink::Instance().Push(EventType::BossWipe, 0, party.ourGuild,
-                                   BridgeRunIdFor(static_cast<uint32>(party.guids.front())),
+        uint64 const runId = BridgeRunIdFor(static_cast<uint32>(party.guids.front()));
+        EventSink::Instance().Push(EventType::BossWipe, 0, party.ourGuild, runId,
                                    BossWipePayload(instance->GetId(), id, party.guids));
+        if (runId)
+            RunRegistry::Instance().NoteWipe(runId);
     }
 };
 
