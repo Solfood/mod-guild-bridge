@@ -100,5 +100,44 @@ int main()
     CHECK_EQ(std::string("bad value for bot"), ParseOrder(big, out));
     big.bot = "4294967295";
     CHECK_EQ(std::string(""), ParseOrder(big, out));
+
+    // Booleans are parsed strictly (Task 8 ruling): an unrecognised value fails the order, never runs it for real.
+    OrderRow strict = Row("remove");
+    strict.bot = "5";
+    for (char const* bad : {"yes", "True", "TRUE", "2", "on", "-1", "true "})
+    {
+        strict.dryRun = bad;
+        CHECK_EQ(std::string("bad value for dry_run"), ParseOrder(strict, out));
+    }
+    for (char const* good : {"", "false", "0"})
+    {
+        strict.dryRun = good;
+        CHECK_EQ(std::string(""), ParseOrder(strict, out));
+        CHECK_TRUE(!out.dryRun);
+    }
+    strict.dryRun = "1";
+    CHECK_EQ(std::string(""), ParseOrder(strict, out));
+    CHECK_TRUE(out.dryRun);
+    OrderRow badDryUnknown = Row("dance");
+    badDryUnknown.dryRun = "yes";
+    CHECK_EQ(std::string("unknown order type 'dance'"), ParseOrder(badDryUnknown, out));
+    OrderRow hero = Row("run_dungeon");
+    hero.dungeon = "rfc";
+    hero.partyLength = "5";
+    hero.party = {"1", "2", "3", "4", "5"};
+    for (char const* bad : {"yes", "True", "2", "null "})
+    {
+        hero.heroic = bad;
+        CHECK_EQ(std::string("bad value for heroic"), ParseOrder(hero, out));
+    }
+    hero.heroic = "false";
+    CHECK_EQ(std::string(""), ParseOrder(hero, out));
+    CHECK_TRUE(!out.heroic);
+    hero.heroic = "true";
+    CHECK_EQ(std::string(""), ParseOrder(hero, out));
+    CHECK_TRUE(out.heroic);
+    hero.heroic = "";
+    CHECK_EQ(std::string(""), ParseOrder(hero, out));
+    CHECK_TRUE(!out.heroic);
     return UnitFailures();
 }

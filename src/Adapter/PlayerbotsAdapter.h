@@ -40,7 +40,14 @@ struct ProfessionState
 ProfessionState GetProfessionState(Player* bot);
 // World thread. The picker keeps a stored pair; a lone first is kept and only its partner is rolled.
 void PresetProfessions(uint32 guid, uint32 first, uint32 second);
-uint32 StoredProfession(uint32 guid, bool second);  // world thread; for `bridge bot`
+uint32 StoredProfession(uint32 guid, bool second);  // world thread; for `bridge bot` and bot_state
+
+// Roster snapshot (bot_state) and focus. World thread: the fork's focus is a plain byte the map threads read, and
+// world-thread hooks run after the map threads have finished their update (preflight / Task 4 ruling).
+std::string RpgStatusName(Player* bot);  // "DO_QUEST", "IDLE", ... (contract §5) or "-" when it has no bot AI
+uint8 DurabilityPct(Player* bot);        // 0-100 (playerbots "durability" value), 100 without AI
+uint8 GetFocus(Player* bot);             // fork NewRpgInfo::focus (0-5), 0 without AI
+void SetFocus(Player* bot, uint8 focus);  // the fork forgets it at logout: the bridge re-applies it
 }  // namespace PlayerbotsAdapter
 
 #endif

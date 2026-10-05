@@ -25,6 +25,7 @@
 #include "QueryCallback.h"
 #include "ScriptMgr.h"
 #include "SimpleOrders.h"
+#include "StateWriter.h"
 #include "StringFormat.h"
 #include "TemporarySummon.h"
 #include <cstdlib>
@@ -116,17 +117,19 @@ public:
         {
             EventSink const& events = EventSink::Instance();
             handler->PSendSysMessage("BRIDGE enabled={} version={} db={} world={} snapshots={} snapfail={} events={} "
-                                     "dropped={} queued={} flushus={} flushmaxus={} orders={} snapq={}",
+                                     "dropped={} queued={} flushus={} flushmaxus={} orders={} snapq={} stateus={} "
+                                     "statemaxus={} staterows={}",
                                      BridgeConfig::Get().enable ? 1 : 0, GUILDBRIDGE_VERSION,
                                      GuildmasterDatabaseReady ? 1 : 0, BridgeConfig::Get().worldId,
                                      BotDumps::Instance().Taken(), BotDumps::Instance().Failed(), events.Written(),
                                      events.Dropped(), events.Queued(), events.LastFlushUs(),
                                      events.MaxFlushUs(), OrderRunner::Instance().Finished(),
-                                     SimpleOrders::QueuedSnapshots());
+                                     SimpleOrders::QueuedSnapshots(), StateWriter::Instance().LastBuildUs(),
+                                     StateWriter::Instance().MaxBuildUs(), StateWriter::Instance().LastRows());
             return true;
         }
         if ((sub == "snapshot" || sub == "clone" || sub == "testbots" || sub == "guild" || sub == "bot" ||
-             sub == "event" || sub == "test" || sub == "order") &&
+             sub == "event" || sub == "test" || sub == "order" || sub == "state") &&
             !BridgeConfig::Get().enable)
         {
             handler->PSendSysMessage("BRIDGEERR the bridge is disabled (GuildBridge.Enable = 0)");
@@ -159,6 +162,34 @@ public:
             }
             BotDumps::Instance().Request(guid.GetCounter(), "manual", 0);
             handler->PSendSysMessage("BRIDGEOK snapshot queued for {}", name);
+            return true;
+        }
+        if (sub == "state" && words.size() > 1 && words[1] == "now")
+        {
+            StateWriter::Instance().WriteNow();
+            handler->PSendSysMessage("BRIDGEOK state queued");
+            return true;
+        }
+        // Test seam: log one member of our guilds out or (masterless) back in, as a relog would (focus re-apply,
+        // C4: a population member must stay in our guild). Never a registered guild's leader.
+        if (sub == "test" && words.size() > 2 && (words[1] == "login" || words[1] == "logout"))
+        {
+            std::string name = words[2];
+            normalizePlayerName(name);
+            ObjectGuid const guid = sCharacterCache->GetCharacterGuidByName(name);
+            CharacterCacheEntry const* cache = guid ? sCharacterCache->GetCharacterCacheByGuid(guid) : nullptr;
+            if (!cache || GuildRegistry::Instance().RoleOf(cache->GuildId) == GuildRole::None ||
+                GuildRegistry::Instance().IsRegisteredLeader(guid))
+            {
+                handler->PSendSysMessage("BRIDGEERR {} works only on members of our guilds (not the leader)", words[1]);
+                return false;
+            }
+            bool const online = ObjectAccessor::FindConnectedPlayer(guid);
+            if (words[1] == "logout" && online)
+                PlayerbotsAdapter::Logout(guid);
+            else if (words[1] == "login" && !online)
+                PlayerbotsAdapter::LoginMasterless(guid);
+            handler->PSendSysMessage("BRIDGEOK test {} {}", words[1], name);
             return true;
         }
         if (sub == "order" && words.size() > 1 && words[1] == "poll")

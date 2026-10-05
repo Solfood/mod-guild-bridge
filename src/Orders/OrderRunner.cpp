@@ -138,6 +138,7 @@ void OrderRunner::Handle(GuildBridge::OrderRow const& row)
     uint64 const id = row.id;
     switch (order.type)
     {
+        case GuildBridge::OrderType::Focus:
         case GuildBridge::OrderType::Invite:
         case GuildBridge::OrderType::Remove:
         case GuildBridge::OrderType::Rank:
@@ -151,7 +152,7 @@ void OrderRunner::Handle(GuildBridge::OrderRow const& row)
             SimpleOrders::SnapshotAll(id, order.dryRun, [id](OrderResult const& result) { Finish(id, result); });
             break;
         default:
-            // focus: Task 9; restore: 10; run_dungeon: 11; create_guild, create_founders: 15
+            // restore: Task 10; run_dungeon: 11; create_guild, create_founders: 15
             Finish(id, {false, "order type not available yet", ""});
             break;
     }

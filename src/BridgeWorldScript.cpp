@@ -12,6 +12,7 @@
 #include "OrderRunner.h"
 #include "ScriptMgr.h"
 #include "SimpleOrders.h"
+#include "StateWriter.h"
 #include "WorldScript.h"
 
 // Startup and the one world-thread tick that drives every bridge part (later tasks add calls here).
@@ -35,6 +36,7 @@ public:
         Firsts::Instance().LoadAtStartup();
         BotDumps::Instance().Start();
         OrderRunner::Instance().RecoverAtStartup();
+        StateWriter::Instance().LoadFocusAtStartup();
     }
 
     void OnUpdate(uint32 diff) override
@@ -46,6 +48,7 @@ public:
         GuildRegistry::Instance().Update(diff);
         SimpleOrders::Update(diff);
         OrderRunner::Instance().Update(diff);
+        StateWriter::Instance().Update(diff);
         _flushInMs = _flushInMs > diff ? _flushInMs - diff : 0;
         if (!_flushInMs)
         {

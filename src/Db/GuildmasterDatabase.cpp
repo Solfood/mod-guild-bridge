@@ -51,4 +51,13 @@ void GuildmasterDatabaseConnection::DoPrepareStatements()
                      "INSERT INTO incidents (guid, name, kind, opened_at, map, zone, x, y, z, level, intent, last_dest, "
                      "details) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                      CONNECTION_ASYNC);
+    // An offline member: a new row from the character cache, or the last-seen row kept with online = 0.
+    // (Row alias, MySQL 8.0.19+: VALUES() here is deprecated in 8.4.)
+    PrepareStatement(GM_UPS_BOT_OFFLINE,
+                     "INSERT INTO bot_state (guid, name, guild_id, online, level, class, race, gender, map, zone, "
+                     "area, x, y, z, alive, ghost, hp_pct, durability_pct, money, activity, focus, in_group, held, "
+                     "updated_at) VALUES (?, ?, ?, 0, ?, ?, ?, ?, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '-', ?, 0, ?, ?) "
+                     "AS new ON DUPLICATE KEY UPDATE online = 0, guild_id = new.guild_id, held = new.held, "
+                     "focus = new.focus, in_group = 0, run_id = NULL, updated_at = new.updated_at",
+                     CONNECTION_ASYNC);
 }

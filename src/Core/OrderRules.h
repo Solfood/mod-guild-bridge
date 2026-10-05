@@ -89,6 +89,19 @@ inline bool ParseUInt(std::string const& text, uint64_t max, uint64_t& out)
     return true;
 }
 
+// A JSON boolean as MySQL's ->> returns it: "true"/"1" or "false"/"0"; absent ("") is false. Anything else
+// ("yes", "True", ...) is refused, so a mistyped dry_run fails the order instead of running it for real.
+inline bool ParseBool(std::string const& text, bool& out)
+{
+    if (text.empty() || text == "false" || text == "0")
+        out = false;
+    else if (text == "true" || text == "1")
+        out = true;
+    else
+        return false;
+    return true;
+}
+
 inline OrderType OrderTypeFromName(std::string const& name)
 {
     if (name == "focus") return OrderType::Focus;
@@ -109,10 +122,11 @@ inline std::string ParseOrder(OrderRow const& row, ParsedOrder& out)
     out = ParsedOrder();
     out.id = row.id;
     out.type = OrderTypeFromName(row.type);
-    out.dryRun = row.dryRun == "true" || row.dryRun == "1";
     out.testFail = row.testFail;
     if (out.type == OrderType::Unknown)
         return "unknown order type '" + row.type + "'";
+    if (!ParseBool(row.dryRun, out.dryRun))
+        return "bad value for dry_run";
 
     uint64_t value = 0;
     auto needBot = [&]() -> std::string {
@@ -197,7 +211,8 @@ inline std::string ParseOrder(OrderRow const& row, ParsedOrder& out)
                     if (out.party[j] == out.party[i])
                         return "party must be 5 different bots";
             }
-            out.heroic = row.heroic == "true" || row.heroic == "1";
+            if (!ParseBool(row.heroic, out.heroic))
+                return "bad value for heroic";
             if (row.approach.empty() || row.approach == "auto")
                 out.approach = Approach::Auto;
             else if (row.approach == "travel")

@@ -21,6 +21,7 @@
 #include "Player.h"
 #include "PlayerbotsAdapter.h"
 #include "QueryCallback.h"
+#include "StateWriter.h"
 #include "StringFormat.h"
 #include <deque>
 #include <memory>
@@ -142,6 +143,17 @@ OrderResult PresetProfessions(ParsedOrder const& order, CharacterCacheEntry cons
             ""};
 }
 
+// Stored in bot_focus and applied at once (world thread); the 30 s bot_state pass re-applies it after relogs.
+OrderResult FocusOrder(ParsedOrder const& order, CharacterCacheEntry const* cache)
+{
+    if (!OurGuildOf(cache))
+        return {false, "bot is not in our guild", ""};
+    if (order.dryRun)
+        return {true, "dry run: would set " + cache->Name + "'s focus to " + FocusName(order.focus), ""};
+    StateWriter::Instance().SetFocus(order.bot, order.focus, order.id);
+    return {true, cache->Name + "'s focus is now " + FocusName(order.focus), ""};
+}
+
 // One snapshot batch (preflight D11: the bookkeeping lives here once). Requests are paced by Update().
 struct Batch
 {
@@ -221,6 +233,7 @@ OrderResult SimpleOrders::Run(ParsedOrder const& order)
         case OrderType::Remove: return Remove(order, cache);
         case OrderType::Rank: return Rank(order, cache);
         case OrderType::PresetProfessions: return PresetProfessions(order, cache);
+        case OrderType::Focus: return FocusOrder(order, cache);
         default: return {false, "unknown order type", ""};
     }
 }

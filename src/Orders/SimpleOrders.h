@@ -8,8 +8,8 @@
 #include "OrderRunner.h"
 #include <functional>
 
-// The orders that finish at once (invite, remove, rank, preset_professions) and the snapshot orders.
-// Holds: none. Invite/remove/rank/preset change the game in one world-thread step; a snapshot only saves the bot
+// The orders that finish at once (focus, invite, remove, rank, preset_professions) and the snapshot orders.
+// Holds: none. Focus/invite/remove/rank/preset change the game in one world-thread step; a snapshot only saves the bot
 // and dumps it on a worker thread (BotDumps). A restart in the middle of a snapshot batch leaves the order
 // "running", and OrderRunner::RecoverAtStartup fails it at the next boot ("interrupted by a server restart").
 namespace SimpleOrders
@@ -17,7 +17,7 @@ namespace SimpleOrders
 // "" when the bot is free for an order; else why not (held = lent to a run or being restored).
 // Check order for later tasks (preflight D10): run (RunIdFor) -> restore (IsRestoring) -> held (IsHeld).
 std::string BusyReason(uint32 guid);
-OrderResult Run(GuildBridge::ParsedOrder const& order);  // invite, remove, rank, preset_professions (+ focus, Task 9)
+OrderResult Run(GuildBridge::ParsedOrder const& order);  // focus, invite, remove, rank, preset_professions
 void Snapshot(GuildBridge::ParsedOrder const& order, std::function<void(OrderResult const&)> finish);
 // Every member of the user and test guilds (reason "scheduled"), then the retention. orderId 0 = console.
 void SnapshotAll(uint64 orderId, bool dryRun, std::function<void(OrderResult const&)> finish);
