@@ -99,6 +99,10 @@ int main()
     CHECK_EQ(std::string("load"), out.testFail);
     restore.testFail = "crash";
     CHECK_EQ(std::string(""), ParseOrder(restore, out));
+    restore.testFail = "purge_timeout";
+    CHECK_EQ(std::string(""), ParseOrder(restore, out));
+    restore.testFail = "delete_fail";
+    CHECK_EQ(std::string(""), ParseOrder(restore, out));
     restore.testFail = "lod";
     CHECK_EQ(std::string("bad value for test_fail"), ParseOrder(restore, out));
     restoreGuild.takenBefore = "1700000000";

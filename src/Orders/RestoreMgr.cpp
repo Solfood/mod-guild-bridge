@@ -6,6 +6,7 @@
 
 #include "BotDumps.h"
 #include "BridgeAsync.h"
+#include "DumpRules.h"
 #include "CharacterCache.h"
 #include "DatabaseEnv.h"
 #include "EventPayloads.h"
@@ -30,6 +31,7 @@ namespace
 {
 constexpr uint32 STEP_TIMEOUT_MS = 120000;  // an async step (snapshot, database round trip)
 constexpr uint32 LOGOUT_TIMEOUT_MS = 60000;
+constexpr uint32 MAX_TRIES = 3;  // purge and delete attempts
 char const* const RECOVERED = "interrupted by a server restart; bot put back from its safety snapshot";
 
 ObjectGuid PlayerGuid(uint32 guid) { return ObjectGuid::Create<HighGuid::Player>(guid); }
@@ -113,6 +115,7 @@ void RestoreMgr::RecoverAtStartup()
             job.population = PlayerbotsAdapter::IsRandomBot(guid);
             job.target = f[7].Get<std::string>();
             job.safety = job.target;
+            job.safetyId = job.snapshotId;
             job.stage = Stage::Logout;  // nobody is online at boot: goes straight on to the mailbox
             PlayerbotsAdapter::Hold(guid);
             job.held = true;
@@ -243,10 +246,10 @@ void RestoreMgr::Step(Job& job, uint32 diff)
         return;  // test seam "crash": waits here for the worldserver restart
     if (job.waiting && job.stage != Stage::Logout && job.stageMs > STEP_TIMEOUT_MS)
     {
-        if (job.stage == Stage::Deleted || job.stage == Stage::Loaded)
+        if (job.stage == Stage::Purged || job.stage == Stage::Deleted || job.stage == Stage::Loaded)
         {
-            // After the delete the bot is never given up on: ask the database again (preflight D18: never reload
-            // blindly; the late answer to the earlier question is ignored).
+            // From the mailbox purge on (the point of no return) the bot is never given up on: ask the database again
+            // (preflight D18: never act blindly; the late answer to the earlier question is ignored).
             LOG_WARN("module.guildbridge", "restore of guid {}: no answer from the characters database, asking again",
                      job.guid);
             SetStage(job, job.stage);
@@ -286,7 +289,12 @@ void RestoreMgr::Step(Job& job, uint32 diff)
             return;
         case Stage::ConfirmSafety:
             // One guildmaster writer: this read runs after the snapshot's insert. Restart recovery needs that row, so
-            // nothing is deleted before it is really there.
+            // nothing is deleted before it is really there. The phase is recorded first (same writer, so it is in
+            // before the answer, and so before the purge): from here a cut restore is put back from the safety
+            // snapshot by RecoverAtStartup (which reloads every unsettled bot of a cut order; the phase says where).
+            GuildmasterDatabase.Execute("UPDATE orders SET result_data = JSON_SET(IFNULL(result_data, JSON_OBJECT()), "
+                                        "'$.phase', 'past_safety', '$.guid', {}) WHERE id = {} AND status = 'running'",
+                                        job.guid, job.batch->orderId);
             job.waiting = true;
             BridgeAsync::Add(GuildmasterDatabase.AsyncQuery(Acore::StringFormat(
                 "SELECT MAX(id) FROM bot_snapshots WHERE order_id = {} AND guid = {} AND reason = 'pre_restore'",
@@ -296,6 +304,7 @@ void RestoreMgr::Step(Job& job, uint32 diff)
                     return;
                 if (!result || !(*result)[0].Get<uint64>())
                     return Done(*current, false, "the safety snapshot did not reach the database; bot unchanged");
+                current->safetyId = (*result)[0].Get<uint64>();
                 SetStage(*current, Stage::Logout);
             }));
             return;
@@ -322,26 +331,54 @@ void RestoreMgr::Step(Job& job, uint32 diff)
         case Stage::Purge:
         {
             // Player::DeleteFromDB returns every player-sent letter in the mailbox to its sender (with its gold and
-            // items) while the snapshot brings its own mailbox back: emptying the mailbox first keeps the restore
-            // from duplicating them. The dumps (target and safety) hold the mailbox, so nothing is lost.
+            // items) while the dump brings its own mailbox back. So the letters that are in the safety dump (the
+            // mailbox when the restore began) are emptied first, by id, in one transaction: that commit is the
+            // point of no return (they then live only in the dumps), and every later failure either finishes the
+            // restore, puts the safety dump back, or says what was lost. A letter that arrived after the dump is
+            // in no dump: it is left to the delete, which returns it to its sender.
+            std::vector<uint64_t> const ids = DumpMailIds(job.safety);
+            job.mailIds = JoinIds(ids);
+            job.mailCount = static_cast<uint32>(ids.size());
+            if (ids.empty())
+            {
+                SetStage(job, Stage::Delete);
+                return;
+            }
+            ++job.purgeTries;
             CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
-            trans->Append(Acore::StringFormat("DELETE FROM mail_items WHERE receiver = {}", job.guid));
-            trans->Append(Acore::StringFormat("DELETE FROM mail WHERE receiver = {}", job.guid));
+            trans->Append(Acore::StringFormat(
+                "DELETE FROM item_instance WHERE guid IN (SELECT item_guid FROM mail_items WHERE mail_id IN ({}))",
+                job.mailIds));
+            trans->Append(Acore::StringFormat("DELETE FROM mail_items WHERE mail_id IN ({})", job.mailIds));
+            trans->Append(Acore::StringFormat("DELETE FROM mail WHERE id IN ({})", job.mailIds));
             CharacterDatabase.CommitTransaction(trans);
-            job.waiting = true;
-            // CharacterDatabase.WorkerThreads = 1 (pinned): this read runs after the transaction above.
-            BridgeAsync::Add(CharacterDatabase.AsyncQuery(Acore::StringFormat(
-                "SELECT COUNT(*) FROM mail WHERE receiver = {}", job.guid)).WithCallback(
-                [this, jobId, seq = job.seq](QueryResult result) {
-                    Job* current = Current(jobId, seq);
-                    if (!current)
-                        return;
-                    if (!result || (*result)[0].Get<uint64>() != 0)
-                        return Done(*current, false, "could not empty the bot's mailbox; bot not deleted");
-                    SetStage(*current, Stage::Delete);
-                }));
+            SetStage(job, Stage::Purged);
             return;
         }
+        case Stage::Purged:
+            // CharacterDatabase.WorkerThreads = 1 (pinned): this read runs after the purge transaction.
+            job.waiting = true;
+            BridgeAsync::Add(CharacterDatabase.AsyncQuery(Acore::StringFormat(
+                "SELECT COUNT(*) FROM mail WHERE id IN ({})", job.mailIds)).WithCallback(
+                [this, jobId, seq = job.seq](QueryResult result) {
+                    Job* current = Current(jobId, seq);
+                    if (!current || !result)
+                        return;  // no answer: the step timeout asks again
+                    if (current->testFail == "purge_timeout" && !current->seamUsed)
+                    {
+                        current->seamUsed = true;  // test seam: this answer is "lost"; the timeout asks again
+                        current->stageMs = STEP_TIMEOUT_MS + 1;
+                        return;
+                    }
+                    if ((*result)[0].Get<uint64>() == 0)
+                        return SetStage(*current, Stage::Delete);
+                    // The purge is one transaction: letters still there means it did not commit and nothing is
+                    // lost yet. Try again, then give up with the bot untouched.
+                    if (current->purgeTries < MAX_TRIES)
+                        return SetStage(*current, Stage::Purge);
+                    Done(*current, false, "could not empty the bot's mailbox; bot unchanged");
+                }));
+            return;
         case Stage::Delete:
             Delete(job);
             return;
@@ -365,12 +402,12 @@ void RestoreMgr::Check(Job& job)
     CharacterCacheEntry const* cache = sCharacterCache->GetCharacterCacheByGuid(guid);
     if (!cache)
         return Done(job, false, "no such bot");
-    for (Job const& other : _jobs)
-        if (&other != &job && other.guid == job.guid && !other.dryRun)
-            return Done(job, false, "bot is being restored");
     // Busy order (preflight D10): run -> restore -> held.
     if (BridgeRunIdFor(job.guid))
         return Done(job, false, "bot is in a dungeon run");
+    for (Job const& other : _jobs)
+        if (&other != &job && other.guid == job.guid && !other.dryRun)
+            return Done(job, false, "bot is being restored");
     if (PlayerbotsAdapter::IsHeld(job.guid))
         return Done(job, false, "bot is busy (lent to a dungeon run or being restored)");
     if (PlayerbotsAdapter::IsRaising(job.guid))
@@ -416,7 +453,11 @@ void RestoreMgr::Delete(Job& job)
     // deleteFinally = true: removed for good whatever CharDelete.Method says (Plan 1b unlinks deleted characters for
     // the hall of legends; a restore must free the guid and the name for the reload). DeleteFromDB makes a few sync
     // reads on the world thread (mail, pets, friends): restores only, like the pdump load (preflight D7).
-    Player::DeleteFromDB(job.guid, job.account, false, true);
+    ++job.deleteTries;
+    if (job.testFail == "delete_fail")
+        LOG_WARN("module.guildbridge", "restore test seam: the delete of guid {} is not sent", job.guid);
+    else
+        Player::DeleteFromDB(job.guid, job.account, false, true);
     LOG_INFO("module.guildbridge", "restore: deleted {} (guid {}) for order {}", job.name, job.guid,
              job.batch->orderId);
     if (job.testFail == "crash")
@@ -444,11 +485,21 @@ void RestoreMgr::CheckDeleted(Job& job)
                 return;  // no answer: the step timeout asks again
             if ((*result)[0].Get<uint64>() != 0)
             {
-                LOG_ERROR("module.guildbridge", "restore: the delete of guid {} did not reach the database; the "
-                          "character is still there but out of the character cache until the next restart",
-                          current->guid);
-                return Done(*current, false, "the delete did not reach the database; bot not changed (restart the "
-                                             "world before using it)");
+                if (current->deleteTries < MAX_TRIES)
+                {
+                    LOG_WARN("module.guildbridge", "restore: the delete of guid {} did not reach the database, "
+                             "trying again", current->guid);
+                    return SetStage(*current, Stage::Delete);
+                }
+                // The safety dump cannot be loaded over a character that is still there (the loader would give it a
+                // new guid), so the loss is stated: the purged letters live on in the safety snapshot.
+                LOG_ERROR("module.guildbridge", "restore: the delete of guid {} never reached the database; its "
+                          "mailbox ({} letters) was emptied: restore pre_restore snapshot {} to get them back",
+                          current->guid, current->mailCount, current->safetyId);
+                return Done(*current, false, "delete failed: the character is still there but its mailbox was "
+                            "emptied (" + std::to_string(current->mailCount) + " letter(s) with their items and "
+                            "gold); restore pre_restore snapshot " + std::to_string(current->safetyId) +
+                            " to get them back (restart the world first if the bot cannot log in)");
             }
             SetStage(*current, Stage::Load);
         }));

@@ -15,8 +15,9 @@
 // Restores, one bot at a time (spec §4.6). World thread. A restore rewinds the bot, not the world.
 //
 // Steps: check (snapshot is this bot's; bot free, not a leader, not in a raising or run) -> hold -> safety snapshot
-// (pre_restore), confirmed in the database -> log out -> empty its mailbox (so the delete returns no mail to its
-// senders: that would duplicate gold and items next to the snapshot's own mailbox) -> delete, confirmed -> load the
+// (pre_restore), confirmed in the database -> log out -> empty the letters that are in the safety dump, confirmed
+// (the point of no return: so the delete returns no letter to its sender next to the dump's own copy; after it a
+// failure finishes, reloads the safety dump or states the loss) -> delete, confirmed (retried) -> load the
 // chosen dump with the same guid, name and account, confirmed (BotDumps::ConfirmLoaded); on failure the safety dump
 // instead -> back in its guild at its rank -> release (population bots are logged in by the population, others by
 // the bridge) -> `restore` event.
@@ -48,7 +49,8 @@ private:
         Safety,         // holds the bot, takes the pre_restore snapshot (async)
         ConfirmSafety,  // that snapshot is in the database (async read)
         Logout,         // logs the bot out and waits until it is gone
-        Purge,          // empties its mailbox (async, confirmed)
+        Purge,          // empties the letters of the safety dump (one transaction: the point of no return)
+        Purged,         // the purge is in the database (async read; asked again on a timeout, retried if it failed)
         Delete,         // deletes the character
         Deleted,        // the delete is in the database (async read; asked again on a timeout)
         Paused,         // test seam "crash": stays here until the worldserver restarts
@@ -88,7 +90,13 @@ private:
         std::string target;
         std::string safety;
         bool usedSafety = false;
-        bool recovery = false;  // queued by RecoverAtStartup: target and safety are the safety dump
+        bool recovery = false;
+        uint64 safetyId = 0;     // the pre_restore snapshot row
+        std::string mailIds;     // the safety dump's letters, "id,id,..."
+        uint32 mailCount = 0;
+        uint32 purgeTries = 0;
+        uint32 deleteTries = 0;
+        bool seamUsed = false;  // queued by RecoverAtStartup: target and safety are the safety dump
         std::string targetError;
         bool waiting = false;  // an async step is in flight
     };

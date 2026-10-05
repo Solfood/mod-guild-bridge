@@ -71,7 +71,7 @@ struct ParsedOrder
     uint64_t snapshotId = 0;
     uint32_t takenBefore = 0;
     bool dryRun = false;
-    std::string testFail;  // test seams only: "load" or "crash" (restore), "dc" (run_dungeon)
+    std::string testFail;  // test seams only: "load", "crash", "purge_timeout", "delete_fail" (restore), "dc" (run_dungeon)
 };
 
 inline bool ParseUInt(std::string const& text, uint64_t max, uint64_t& out)
@@ -236,8 +236,11 @@ inline std::string ParseOrder(OrderRow const& row, ParsedOrder& out)
             return "";  // Task 15 replaces these two lines with the real checks
         case OrderType::Restore:
             // Test seams (test-guild bots only, checked by the restore): "load" (the chosen dump fails to load),
-            // "crash" (stops right after the delete). Anything else fails the order rather than run a real restore.
-            if (!row.testFail.empty() && row.testFail != "load" && row.testFail != "crash")
+            // "crash" (stops right after the delete), "purge_timeout" (the first answer about the emptied mailbox is
+            // lost), "delete_fail" (the delete never reaches the database). Anything else fails the order rather
+            // than run a real restore.
+            if (!row.testFail.empty() && row.testFail != "load" && row.testFail != "crash" &&
+                row.testFail != "purge_timeout" && row.testFail != "delete_fail")
                 return "bad value for test_fail";
             if (!row.bot.empty() && !row.guild.empty())
                 return "give bot or guild, not both";
