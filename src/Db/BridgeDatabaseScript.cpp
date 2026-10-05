@@ -77,19 +77,23 @@ public:
                       worldId);
             return false;
         }
-        if (QueryResult result = GuildmasterDatabase.Query("SELECT world_id FROM world_status WHERE id = 1"))
-        {
-            std::string const stamped = (*result)[0].Get<std::string>();
-            if (stamped != worldId)
-            {
-                LOG_ERROR("module.guildbridge", "guildmaster database belongs to world {}, this server is world {}",
-                          stamped, worldId);
-                return false;
-            }
-            return true;
-        }
+        // INSERT IGNORE then read back: if two worlds first-boot against the same empty database at once, only
+        // one stamp lands and the other world reads the winner's id and refuses (DirectExecute reports nothing).
         GuildmasterDatabase.DirectExecute(Acore::StringFormat(
-            "INSERT INTO world_status (id, world_id, booted_at) VALUES (1, '{}', UNIX_TIMESTAMP())", worldId));
+            "INSERT IGNORE INTO world_status (id, world_id, booted_at) VALUES (1, '{}', UNIX_TIMESTAMP())", worldId));
+        QueryResult result = GuildmasterDatabase.Query("SELECT world_id FROM world_status WHERE id = 1");
+        if (!result)
+        {
+            LOG_ERROR("module.guildbridge", "could not stamp the guildmaster database with world {}", worldId);
+            return false;
+        }
+        std::string const stamped = (*result)[0].Get<std::string>();
+        if (stamped != worldId)
+        {
+            LOG_ERROR("module.guildbridge", "guildmaster database belongs to world {}, this server is world {}",
+                      stamped, worldId);
+            return false;
+        }
         return true;
     }
 
@@ -109,6 +113,15 @@ public:
             "old_class, old_level, guild_id, state, raised_at FROM `{}`.`playerbots_raisings` "
             "WHERE state IN ('created', 'done')",
             pb));
+        // DirectExecute reports nothing: prove the view exists and reads (no grant, no CREATE VIEW privilege, a
+        // table already named legends or a missing playerbots_raisings all fail here and stop the boot).
+        QueryResult const isView = GuildmasterDatabase.Query(
+            "SELECT COUNT(*) FROM information_schema.VIEWS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'legends'");
+        if (!isView || (*isView)[0].Get<uint64>() != 1 || !GuildmasterDatabase.Query("SELECT COUNT(*) FROM legends"))
+        {
+            LOG_ERROR("module.guildbridge", "could not create the legends view on `{}`.`playerbots_raisings`", pb);
+            return false;
+        }
         return true;
     }
 
