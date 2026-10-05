@@ -35,3 +35,17 @@ GuildmasterDatabase.SynchThreads = 1
 #        Default:     "w1"
 
 GuildBridge.WorldId = "w1"
+
+#    GuildBridge.TestAccount
+#        Description: The normal (non-bot) account that holds clones: throwaway copies of bots for risky tests
+#                     (`.bridge clone`, `.bridge testbots login|logout`). Create it once with `account create`.
+#        Default:     "GMTEST"
+
+GuildBridge.TestAccount = "GMTEST"
+
+#    GuildBridge.Snapshot.KeepDays
+#        Description: Per-bot snapshots (player dumps in bot_snapshots) older than this many days are deleted at
+#                     startup and after every snapshot_all order. 0 keeps every snapshot.
+#        Default:     14
+
+GuildBridge.Snapshot.KeepDays = 14

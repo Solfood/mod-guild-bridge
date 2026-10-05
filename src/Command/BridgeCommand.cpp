@@ -2,11 +2,22 @@
  * This file is part of mod-guild-bridge (Solfood/guildmaster). Released under GNU GPL v2 or later.
  */
 
+#include "BotDumps.h"
+#include "BridgeAsync.h"
 #include "BridgeConfig.h"
+#include "CharacterCache.h"
 #include "Chat.h"
 #include "CommandScript.h"
+#include "DatabaseEnv.h"
 #include "GuildmasterDatabase.h"
+#include "Log.h"
+#include "ObjectAccessor.h"
+#include "ObjectMgr.h"
+#include "PlayerbotsAdapter.h"
+#include "QueryCallback.h"
 #include "ScriptMgr.h"
+#include "StringFormat.h"
+#include <functional>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -23,6 +34,46 @@ std::vector<std::string> Words(char const* args)
     while (in >> word)
         out.push_back(word);
     return out;
+}
+
+// Looks an account id up by name without a sync query on the world thread (AccountMgr::GetId is sync); `then`
+// runs on the world thread with the id, 0 when there is no such account.
+void WithAccountId(std::string accountName, std::function<void(uint32)> then)
+{
+    LoginDatabase.EscapeString(accountName);
+    BridgeAsync::Add(
+        LoginDatabase.AsyncQuery(Acore::StringFormat("SELECT id FROM account WHERE username = '{}'", accountName))
+            .WithCallback([then = std::move(then)](QueryResult result) {
+                then(result ? (*result)[0].Get<uint32>() : 0);
+            }));
+}
+
+// Clone: dump `source` (saved first when online) and load it onto `accountName` as `target`, a new character.
+void Clone(ObjectGuid source, std::string const& target, std::string const& accountName)
+{
+    WithAccountId(accountName, [source, target, accountName](uint32 account) {
+        if (!account)
+        {
+            LOG_ERROR("module.guildbridge", "GUILDBRIDGE clone {} failed: no account {}", target, accountName);
+            return;
+        }
+        BotDumps::Instance().Request(
+            source.GetCounter(), "manual", 0,
+            [account, target](bool ok, std::string const& error, std::string const& dump) {
+                std::string why = error;
+                if (ok && sCharacterCache->GetCharacterGuidByName(target))
+                    why = "the name was taken meanwhile";
+                else if (ok && BotDumps::LoadOnWorldThread(dump, account, target, 0, why))
+                    why.clear();
+                if (!why.empty() || !ok)
+                {
+                    LOG_ERROR("module.guildbridge", "GUILDBRIDGE clone {} failed: {}", target, why);
+                    return;
+                }
+                LOG_INFO("module.guildbridge", "GUILDBRIDGE clone {} guid={}", target,
+                         sCharacterCache->GetCharacterGuidByName(target).GetCounter());
+            });
+    });
 }
 }  // namespace
 
@@ -47,9 +98,78 @@ public:
         std::string const sub = words.empty() ? "status" : words[0];
         if (sub == "status")
         {
-            handler->PSendSysMessage("BRIDGE enabled={} version={} db={} world={}",
+            handler->PSendSysMessage("BRIDGE enabled={} version={} db={} world={} snapshots={} snapfail={}",
                                      BridgeConfig::Get().enable ? 1 : 0, GUILDBRIDGE_VERSION,
-                                     GuildmasterDatabaseReady ? 1 : 0, BridgeConfig::Get().worldId);
+                                     GuildmasterDatabaseReady ? 1 : 0, BridgeConfig::Get().worldId,
+                                     BotDumps::Instance().Taken(), BotDumps::Instance().Failed());
+            return true;
+        }
+        if ((sub == "snapshot" || sub == "clone" || sub == "testbots") && !BridgeConfig::Get().enable)
+        {
+            handler->PSendSysMessage("BRIDGEERR the bridge is disabled (GuildBridge.Enable = 0)");
+            return false;
+        }
+        if (sub == "snapshot" && words.size() > 1)
+        {
+            if (words[1] == "retention")
+            {
+                BotDumps::Instance().RunRetention();
+                handler->PSendSysMessage("BRIDGEOK retention queued");
+                return true;
+            }
+            std::string name = words[1];
+            normalizePlayerName(name);
+            ObjectGuid const guid = sCharacterCache->GetCharacterGuidByName(name);
+            if (!guid)
+            {
+                handler->PSendSysMessage("BRIDGEERR no character named {}", name);
+                return false;
+            }
+            BotDumps::Instance().Request(guid.GetCounter(), "manual", 0);
+            handler->PSendSysMessage("BRIDGEOK snapshot queued for {}", name);
+            return true;
+        }
+        if (sub == "clone" && words.size() > 2)
+        {
+            std::string source = words[1];
+            std::string target = words[2];
+            normalizePlayerName(source);
+            normalizePlayerName(target);
+            ObjectGuid const guid = sCharacterCache->GetCharacterGuidByName(source);
+            if (!guid || sCharacterCache->GetCharacterGuidByName(target) ||
+                ObjectMgr::CheckPlayerName(target, true) != CHAR_NAME_SUCCESS)
+            {
+                handler->PSendSysMessage("BRIDGEERR need an existing source and a free, valid new name");
+                return false;
+            }
+            // The account is looked up asynchronously; a missing account is logged as a failed clone.
+            Clone(guid, target, BridgeConfig::Get().testAccount);
+            handler->PSendSysMessage("BRIDGEOK clone queued {} -> {}", source, target);
+            return true;
+        }
+        if (sub == "testbots" && words.size() > 1 && (words[1] == "login" || words[1] == "logout"))
+        {
+            bool const login = words[1] == "login";
+            WithAccountId(BridgeConfig::Get().testAccount, [login](uint32 account) {
+                if (!account)
+                    return;
+                BridgeAsync::Add(CharacterDatabase.AsyncQuery(Acore::StringFormat(
+                    "SELECT guid FROM characters WHERE account = {} AND deleteInfos_Account IS NULL", account))
+                        .WithCallback([login](QueryResult result) {
+                            if (!result)
+                                return;
+                            do
+                            {
+                                ObjectGuid const guid =
+                                    ObjectGuid::Create<HighGuid::Player>((*result)[0].Get<uint32>());
+                                if (login && !ObjectAccessor::FindConnectedPlayer(guid))
+                                    PlayerbotsAdapter::LoginMasterless(guid);
+                                else if (!login)
+                                    PlayerbotsAdapter::Logout(guid);
+                            } while (result->NextRow());
+                        }));
+            });
+            handler->PSendSysMessage("BRIDGEOK testbots {}", login ? "login" : "logout");
             return true;
         }
         handler->PSendSysMessage("BRIDGEERR unknown sub-command {}", sub);

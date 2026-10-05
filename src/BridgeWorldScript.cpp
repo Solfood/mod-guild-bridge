@@ -2,6 +2,7 @@
  * This file is part of mod-guild-bridge (Solfood/guildmaster). Released under GNU GPL v2 or later.
  */
 
+#include "BotDumps.h"
 #include "BridgeAsync.h"
 #include "BridgeConfig.h"
 #include "Log.h"
@@ -23,16 +24,19 @@ public:
     void OnStartup() override
     {
         LOG_INFO("module.guildbridge", "GUILDBRIDGE loaded (enabled={})", BridgeConfig::Get().enable ? 1 : 0);
+        if (BridgeConfig::Get().enable)
+            BotDumps::Instance().Start();
     }
 
-    void OnUpdate(uint32 /*diff*/) override
+    void OnUpdate(uint32 diff) override
     {
         if (!BridgeConfig::Get().enable)
             return;
         BridgeAsync::Process();
+        BotDumps::Instance().Update(diff);
     }
 
-    void OnShutdown() override {}
+    void OnShutdown() override { BotDumps::Instance().Stop(); }
 };
 
 void AddBridgeWorldScripts() { new BridgeWorldScript(); }

@@ -20,6 +20,8 @@ void BridgeConfig::Load()
     worldId = sConfigMgr->GetOption<std::string>("GuildBridge.WorldId", "w1");
     charactersDb = DatabaseNameOf(sConfigMgr->GetOption<std::string>("CharacterDatabaseInfo", ""));
     playerbotsDb = DatabaseNameOf(sConfigMgr->GetOption<std::string>("PlayerbotsDatabaseInfo", ""));
+    testAccount = sConfigMgr->GetOption<std::string>("GuildBridge.TestAccount", "GMTEST");
+    snapshotKeepDays = sConfigMgr->GetOption<uint32>("GuildBridge.Snapshot.KeepDays", 14);
 }
 
 std::string BridgeConfig::DatabaseNameOf(std::string const& info)
