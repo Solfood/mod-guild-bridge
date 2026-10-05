@@ -27,6 +27,7 @@ public:
     uint64 Dropped() const { return _dropped; }
     uint32 Queued() const { return _queued; }
     uint32 LastFlushUs() const { return _lastFlushUs; }
+    uint32 MaxFlushUs() const { return _maxFlushUs; }  // the slowest flush since boot (world-thread cost)
 
 private:
     struct Pending
@@ -45,6 +46,7 @@ private:
     std::atomic<uint64> _dropped{0};
     std::atomic<uint32> _queued{0};
     std::atomic<uint32> _lastFlushUs{0};
+    std::atomic<uint32> _maxFlushUs{0};
 };
 
 #endif

@@ -56,6 +56,9 @@ void EventSink::Flush()
     }
     GuildmasterDatabase.CommitTransaction(trans);  // async: the guildmaster pool's writer thread runs it
     _written += batch.size();
-    _lastFlushUs = static_cast<uint32>(
+    uint32 const us = static_cast<uint32>(
         std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start).count());
+    _lastFlushUs = us;
+    if (us > _maxFlushUs)
+        _maxFlushUs = us;  // world thread only: no race
 }

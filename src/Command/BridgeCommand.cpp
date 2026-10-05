@@ -114,11 +114,12 @@ public:
         {
             EventSink const& events = EventSink::Instance();
             handler->PSendSysMessage("BRIDGE enabled={} version={} db={} world={} snapshots={} snapfail={} events={} "
-                                     "dropped={} queued={} flushus={}",
+                                     "dropped={} queued={} flushus={} flushmaxus={}",
                                      BridgeConfig::Get().enable ? 1 : 0, GUILDBRIDGE_VERSION,
                                      GuildmasterDatabaseReady ? 1 : 0, BridgeConfig::Get().worldId,
                                      BotDumps::Instance().Taken(), BotDumps::Instance().Failed(), events.Written(),
-                                     events.Dropped(), events.Queued(), events.LastFlushUs());
+                                     events.Dropped(), events.Queued(), events.LastFlushUs(),
+                                     events.MaxFlushUs());
             return true;
         }
         if ((sub == "snapshot" || sub == "clone" || sub == "testbots" || sub == "guild" || sub == "bot" ||
