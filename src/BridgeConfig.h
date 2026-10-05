@@ -20,6 +20,7 @@ struct BridgeConfig
     std::string playerbotsDb;
     std::string testAccount;  // GuildBridge.TestAccount: the normal account that holds clones (test bots)
     uint32 snapshotKeepDays = 14;  // GuildBridge.Snapshot.KeepDays (0 = keep every snapshot)
+    uint32 snapshotPerTick = 1;    // GuildBridge.Snapshot.PerTick: batch snapshot requests started per world tick
     uint32 eventFlushMs = 1000;     // GuildBridge.Events.FlushMs: how often queued events are written
     uint32 eventQueueCap = 10000;   // GuildBridge.Events.QueueCap: queued events beyond this are dropped (counted)
     uint32 firstsLevelStep = 10;    // GuildBridge.Firsts.LevelStep: level firsts at 10, 20, ... (0 = none)

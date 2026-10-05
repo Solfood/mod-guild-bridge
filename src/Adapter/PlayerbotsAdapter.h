@@ -27,6 +27,20 @@ bool IsRealGuild(uint32 guildId);       // leader on a non-bot account
 bool IsHeld(uint32 guid);               // any thread
 void SetRaisingsUserGuild(uint32 guildId);  // world thread: the fork's raisings cap the user's guild per wave
 uint32 RaisingsUserGuild();
+
+// Professions (fork ProfessionPicker, honest world): a bot picks two primary professions once, at its pick level.
+struct ProfessionState
+{
+    uint8 pickLevel = 0;
+    uint32 knownPrimary = 0;  // primary professions the bot already knows
+    uint32 stored1 = 0;       // the stored pick (firstSkill / secondSkill values; 0 = none)
+    uint32 stored2 = 0;
+};
+// World thread: the stored values load from the playerbots DB on a bot's first use (preflight D7 allows it).
+ProfessionState GetProfessionState(Player* bot);
+// World thread. The picker keeps a stored pair; a lone first is kept and only its partner is rolled.
+void PresetProfessions(uint32 guid, uint32 first, uint32 second);
+uint32 StoredProfession(uint32 guid, bool second);  // world thread; for `bridge bot`
 }  // namespace PlayerbotsAdapter
 
 #endif

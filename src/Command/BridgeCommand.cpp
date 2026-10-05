@@ -17,12 +17,14 @@
 #include "GuildRegistry.h"
 #include "GuildmasterDatabase.h"
 #include "Log.h"
+#include "OrderRunner.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
 #include "Player.h"
 #include "PlayerbotsAdapter.h"
 #include "QueryCallback.h"
 #include "ScriptMgr.h"
+#include "SimpleOrders.h"
 #include "StringFormat.h"
 #include "TemporarySummon.h"
 #include <cstdlib>
@@ -114,16 +116,17 @@ public:
         {
             EventSink const& events = EventSink::Instance();
             handler->PSendSysMessage("BRIDGE enabled={} version={} db={} world={} snapshots={} snapfail={} events={} "
-                                     "dropped={} queued={} flushus={} flushmaxus={}",
+                                     "dropped={} queued={} flushus={} flushmaxus={} orders={} snapq={}",
                                      BridgeConfig::Get().enable ? 1 : 0, GUILDBRIDGE_VERSION,
                                      GuildmasterDatabaseReady ? 1 : 0, BridgeConfig::Get().worldId,
                                      BotDumps::Instance().Taken(), BotDumps::Instance().Failed(), events.Written(),
                                      events.Dropped(), events.Queued(), events.LastFlushUs(),
-                                     events.MaxFlushUs());
+                                     events.MaxFlushUs(), OrderRunner::Instance().Finished(),
+                                     SimpleOrders::QueuedSnapshots());
             return true;
         }
         if ((sub == "snapshot" || sub == "clone" || sub == "testbots" || sub == "guild" || sub == "bot" ||
-             sub == "event" || sub == "test") &&
+             sub == "event" || sub == "test" || sub == "order") &&
             !BridgeConfig::Get().enable)
         {
             handler->PSendSysMessage("BRIDGEERR the bridge is disabled (GuildBridge.Enable = 0)");
@@ -137,6 +140,15 @@ public:
                 handler->PSendSysMessage("BRIDGEOK retention queued");
                 return true;
             }
+            // The raw lower-case word: `bridge snapshot All` still means a character named All.
+            if (words[1] == "all")
+            {
+                SimpleOrders::SnapshotAll(0, false, [](OrderResult const& result) {
+                    LOG_INFO("module.guildbridge", "GUILDBRIDGE snapshot all: {}", result.text);
+                });
+                handler->PSendSysMessage("BRIDGEOK snapshot all queued");
+                return true;
+            }
             std::string name = words[1];
             normalizePlayerName(name);
             ObjectGuid const guid = sCharacterCache->GetCharacterGuidByName(name);
@@ -147,6 +159,12 @@ public:
             }
             BotDumps::Instance().Request(guid.GetCounter(), "manual", 0);
             handler->PSendSysMessage("BRIDGEOK snapshot queued for {}", name);
+            return true;
+        }
+        if (sub == "order" && words.size() > 1 && words[1] == "poll")
+        {
+            OrderRunner::Instance().PollNow();
+            handler->PSendSysMessage("BRIDGEOK polling");
             return true;
         }
         if (sub == "clone" && words.size() > 2)
@@ -238,11 +256,18 @@ public:
                 return false;
             }
             Player* bot = ObjectAccessor::FindConnectedPlayer(guid);
-            handler->PSendSysMessage("BRIDGEBOT name={} guid={} online={} random={} held={} guild={} role={}", name,
-                                     guid.GetCounter(), bot ? 1 : 0,
+            Guild* guild = cache->GuildId ? sGuildMgr->GetGuildById(cache->GuildId) : nullptr;
+            Guild::Member const* member = guild ? guild->GetMember(guid) : nullptr;
+            handler->PSendSysMessage("BRIDGEBOT name={} guid={} online={} random={} held={} guild={} role={} rank={} "
+                                     "level={} prof1={} prof2={}",
+                                     name, guid.GetCounter(), bot ? 1 : 0,
                                      PlayerbotsAdapter::IsRandomBot(guid.GetCounter()) ? 1 : 0,
                                      PlayerbotsAdapter::IsHeld(guid.GetCounter()) ? 1 : 0, cache->GuildId,
-                                     GuildRegistry::RoleName(GuildRegistry::Instance().RoleOf(cache->GuildId)));
+                                     GuildRegistry::RoleName(GuildRegistry::Instance().RoleOf(cache->GuildId)),
+                                     member ? static_cast<int>(member->GetRankId()) : -1,
+                                     static_cast<uint32>(bot ? bot->GetLevel() : cache->Level),
+                                     PlayerbotsAdapter::StoredProfession(guid.GetCounter(), false),
+                                     PlayerbotsAdapter::StoredProfession(guid.GetCounter(), true));
             return true;
         }
         if (sub == "event" && words.size() > 2 && words[1] == "fake")

@@ -51,6 +51,14 @@ GuildBridge.TestAccount = "GMTEST"
 
 GuildBridge.Snapshot.KeepDays = 14
 
+#    GuildBridge.Snapshot.PerTick
+#        Description: Snapshot orders over many bots (snapshot of a guild, snapshot_all) start this many bot
+#                     snapshots per world tick. Each one saves an online bot on the world thread (about 0.5-1 ms),
+#                     so 1 keeps a 1000-bot snapshot_all from stalling any tick. At least 1.
+#        Default:     1
+
+GuildBridge.Snapshot.PerTick = 1
+
 #    GuildBridge.Events.FlushMs
 #        Description: Game hooks queue events in memory; every this many milliseconds the world thread hands the
 #                     queue to the guildmaster pool's writer thread as one transaction. At least 100.

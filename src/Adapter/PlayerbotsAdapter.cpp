@@ -7,9 +7,11 @@
 #include "Player.h"
 #include "PlayerbotAI.h"
 #include "PlayerbotAIConfig.h"
+#include "PlayerbotFactory.h"
 #include "PlayerbotGuildMgr.h"
 #include "PlayerbotMgr.h"
 #include "Playerbots.h"
+#include "ProfessionPicker.h"
 #include "RandomPlayerbotMgr.h"
 #include <cctype>
 
@@ -59,3 +61,28 @@ bool PlayerbotsAdapter::IsHeld(uint32 guid) { return sRandomPlayerbotMgr.IsHeld(
 void PlayerbotsAdapter::SetRaisingsUserGuild(uint32 guildId) { sPlayerbotAIConfig.raisingsUserGuildId = guildId; }
 
 uint32 PlayerbotsAdapter::RaisingsUserGuild() { return sPlayerbotAIConfig.raisingsUserGuildId; }
+
+PlayerbotsAdapter::ProfessionState PlayerbotsAdapter::GetProfessionState(Player* bot)
+{
+    ProfessionState state;
+    uint32 const guid = bot->GetGUID().GetCounter();
+    state.pickLevel = ProfessionPicker::PickLevel(bot);
+    for (uint32 skill : PlayerbotFactory::tradeSkills)
+        if (PlayerbotFactory::IsPrimaryTradeSkill(static_cast<uint16>(skill)) && bot->HasSkill(skill))
+            ++state.knownPrimary;
+    state.stored1 = sRandomPlayerbotMgr.GetValue(guid, "firstSkill");
+    state.stored2 = sRandomPlayerbotMgr.GetValue(guid, "secondSkill");
+    return state;
+}
+
+void PlayerbotsAdapter::PresetProfessions(uint32 guid, uint32 first, uint32 second)
+{
+    // ProfessionPicker keeps a stored pick; a lone first is kept and only its partner is rolled (fork Task 7, F11).
+    sRandomPlayerbotMgr.SetValue(guid, "firstSkill", first);
+    sRandomPlayerbotMgr.SetValue(guid, "secondSkill", second);
+}
+
+uint32 PlayerbotsAdapter::StoredProfession(uint32 guid, bool second)
+{
+    return sRandomPlayerbotMgr.GetValue(guid, second ? "secondSkill" : "firstSkill");
+}
