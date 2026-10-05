@@ -42,7 +42,8 @@ public:
     // been applied (one async writer: a query queued after it returns after it). On failure the character
     // cache entry the load added is dropped again, so the name is free.
     static void ConfirmLoaded(std::string const& name, std::function<void(bool ok, uint32 guid)> done);
-    void RunRetention();  // world thread
+    // World thread, async. Deletes snapshots older than KeepDays, except each bot's newest one.
+    void RunRetention();
     uint64 Taken() const { return _taken; }
     uint64 Failed() const { return _failed; }
 

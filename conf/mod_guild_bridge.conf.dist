@@ -45,7 +45,8 @@ GuildBridge.TestAccount = "GMTEST"
 
 #    GuildBridge.Snapshot.KeepDays
 #        Description: Per-bot snapshots (player dumps in bot_snapshots) older than this many days are deleted at
-#                     startup and after every snapshot_all order. 0 keeps every snapshot.
+#                     startup and after every snapshot_all order; a bot's newest snapshot is always kept.
+#                     0 keeps every snapshot.
 #        Default:     14
 
 GuildBridge.Snapshot.KeepDays = 14

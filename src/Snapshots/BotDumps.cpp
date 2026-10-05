@@ -183,7 +183,12 @@ void BotDumps::RunRetention()
     if (!keepDays)
         return;  // 0 = keep every snapshot
     uint32 const cutoff = static_cast<uint32>(std::time(nullptr)) - keepDays * 86400u;
-    GuildmasterDatabase.Execute("DELETE FROM bot_snapshots WHERE taken_at < {}", cutoff);
+    // Never the newest snapshot of a bot (highest id = taken last): a world that was off longer than KeepDays
+    // must still have something to restore from. The derived table is materialised first, so MySQL allows it.
+    GuildmasterDatabase.Execute("DELETE s FROM bot_snapshots s JOIN (SELECT guid, MAX(id) AS newest FROM "
+                                "bot_snapshots GROUP BY guid) k ON k.guid = s.guid "
+                                "WHERE s.taken_at < {} AND s.id <> k.newest",
+                                cutoff);
 }
 
 void BotDumps::Update(uint32 /*diff*/)
