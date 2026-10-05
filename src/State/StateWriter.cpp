@@ -15,6 +15,7 @@
 #include "Player.h"
 #include "PlayerbotsAdapter.h"
 #include "QueryCallback.h"
+#include "RestoreMgr.h"
 #include "StringFormat.h"
 #include <chrono>
 #include <ctime>
@@ -63,6 +64,14 @@ void StateWriter::SetFocus(uint32 guid, Focus focus, uint64 orderId)
         PlayerbotsAdapter::SetFocus(bot, static_cast<uint8>(focus));
 }
 
+void StateWriter::ClearFocus(uint32 guid)
+{
+    _focus.erase(guid);
+    GuildmasterDatabase.Execute("DELETE FROM bot_focus WHERE guid = {}", guid);
+    if (Player* bot = ObjectAccessor::FindPlayerByLowGUID(guid))
+        PlayerbotsAdapter::SetFocus(bot, static_cast<uint8>(Focus::None));
+}
+
 void StateWriter::Update(uint32 diff)
 {
     _timer += diff;
@@ -83,11 +92,17 @@ void StateWriter::WriteNow()
         "SELECT guid, guildid FROM guild_member WHERE guildid IN ({}, {})", user, test)).WithCallback(
         [this](QueryResult result) {
             _querying = false;
+            // A registered guild always has its leader, so no rows means the read failed: skip this pass rather
+            // than take an empty list for "everyone left" and wipe the roster.
+            if (!result)
+            {
+                LOG_WARN("module.guildbridge", "bot_state: the guild member list could not be read; pass skipped");
+                return;
+            }
             std::unordered_map<uint32, uint32> members;
-            if (result)
-                do
-                    members[(*result)[0].Get<uint32>()] = (*result)[1].Get<uint32>();
-                while (result->NextRow());
+            do
+                members[(*result)[0].Get<uint32>()] = (*result)[1].Get<uint32>();
+            while (result->NextRow());
             WriteMembers(members);
         }));
 }
@@ -104,8 +119,10 @@ void StateWriter::WriteMembers(std::unordered_map<uint32, uint32> const& members
         keep += (keep.empty() ? "" : ",") + std::to_string(guid);
         Focus const focus = FocusOf(guid);
         uint8 const held = PlayerbotsAdapter::IsHeld(guid) ? 1 : 0;
-        Player* bot = ObjectAccessor::FindPlayerByLowGUID(guid);
-        if (!bot || !bot->IsInWorld())
+        Player* bot = ObjectAccessor::FindConnectedPlayer(ObjectGuid::Create<HighGuid::Player>(guid));
+        if (bot && !bot->IsInWorld())
+            continue;  // connected but between maps (a far teleport): its last row stays as it was
+        if (!bot)
         {
             CharacterCacheEntry const* cache =
                 sCharacterCache->GetCharacterCacheByGuid(ObjectGuid::Create<HighGuid::Player>(guid));
@@ -158,6 +175,19 @@ void StateWriter::WriteMembers(std::unordered_map<uint32, uint32> const& members
         stmt->SetData(24, held);
         stmt->SetData(25, now);
         trans->Append(stmt);
+        ++rows;
+    }
+    // A bot being restored is out of guild_member (deleted, then loaded back) for a moment: its row stays, marked
+    // held and offline, instead of being dropped and written again.
+    std::string restoring;
+    for (uint32 guid : RestoreMgr::Instance().RestoringGuids())
+        if (!members.count(guid))
+            restoring += (restoring.empty() ? "" : ",") + std::to_string(guid);
+    if (!restoring.empty())
+    {
+        trans->Append(Acore::StringFormat("UPDATE bot_state SET online = 0, held = 1, updated_at = {} WHERE guid IN ({})",
+                                          now, restoring));
+        keep += (keep.empty() ? "" : ",") + restoring;
         ++rows;
     }
     if (rows)

@@ -13,6 +13,7 @@
 #include "Playerbots.h"
 #include "NewRpgInfo.h"
 #include "ProfessionPicker.h"
+#include "RaisingMgr.h"
 #include "RandomPlayerbotMgr.h"
 #include <cctype>
 
@@ -56,6 +57,12 @@ void PlayerbotsAdapter::ValidateGuildCache() { PlayerbotGuildMgr::instance().Val
 bool PlayerbotsAdapter::IsRealGuild(uint32 guildId) { return PlayerbotGuildMgr::instance().IsRealGuild(guildId); }
 
 bool PlayerbotsAdapter::IsHeld(uint32 guid) { return sRandomPlayerbotMgr.IsHeld(guid); }
+
+void PlayerbotsAdapter::Hold(uint32 guid) { sRandomPlayerbotMgr.Hold(guid); }
+
+void PlayerbotsAdapter::Release(uint32 guid) { sRandomPlayerbotMgr.Release(guid); }
+
+bool PlayerbotsAdapter::IsRaising(uint32 guid) { return sRaisingMgr.IsRaising(guid); }
 
 // The user's guild is created at New Game, so its id cannot sit in playerbots.conf
 // (AiPlayerbot.Raisings.UserGuildId stays 0 there); the bridge sets the live value from the registry.

@@ -25,6 +25,9 @@ bool IsBotAccountName(std::string const& accountName);  // starts with AiPlayerb
 void ValidateGuildCache();              // world thread: playerbots re-reads which guilds are "real"
 bool IsRealGuild(uint32 guildId);       // leader on a non-bot account
 bool IsHeld(uint32 guid);               // any thread
+void Hold(uint32 guid);                 // fork RandomPlayerbotMgr::Hold: the population (and raisings) leave it alone
+void Release(uint32 guid);
+bool IsRaising(uint32 guid);            // world thread: the original or death knight of an unfinished raising
 void SetRaisingsUserGuild(uint32 guildId);  // world thread: the fork's raisings cap the user's guild per wave
 uint32 RaisingsUserGuild();
 

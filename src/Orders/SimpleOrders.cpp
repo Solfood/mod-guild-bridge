@@ -21,6 +21,7 @@
 #include "Player.h"
 #include "PlayerbotsAdapter.h"
 #include "QueryCallback.h"
+#include "RestoreMgr.h"
 #include "StateWriter.h"
 #include "StringFormat.h"
 #include <deque>
@@ -102,6 +103,7 @@ OrderResult Remove(ParsedOrder const& order, CharacterCacheEntry const* cache)
     std::string const guildName = guild->GetName();
     uint32 const guildId = guild->GetId();
     guild->DeleteMember(cache->Guid, false, true);
+    StateWriter::Instance().ClearFocus(order.bot);  // a focus order only applies to our members
     EventSink::Instance().Push(EventType::GuildLeave, order.bot, guildId, 0, GuildLeavePayload(guildName, true));
     return {true, cache->Name + " left " + guildName, ""};
 }
@@ -214,6 +216,8 @@ std::vector<uint32> Guids(QueryResult const& result)
 
 std::string SimpleOrders::BusyReason(uint32 guid)
 {
+    if (RestoreMgr::Instance().IsRestoring(guid))
+        return "bot is being restored";
     if (PlayerbotsAdapter::IsHeld(guid))
         return "bot is busy (lent to a dungeon run or being restored)";
     return "";

@@ -23,6 +23,7 @@
 #include "Player.h"
 #include "PlayerbotsAdapter.h"
 #include "QueryCallback.h"
+#include "RestoreMgr.h"
 #include "ScriptMgr.h"
 #include "SimpleOrders.h"
 #include "StateWriter.h"
@@ -118,14 +119,15 @@ public:
             EventSink const& events = EventSink::Instance();
             handler->PSendSysMessage("BRIDGE enabled={} version={} db={} world={} snapshots={} snapfail={} events={} "
                                      "dropped={} queued={} flushus={} flushmaxus={} orders={} snapq={} stateus={} "
-                                     "statemaxus={} staterows={}",
+                                     "statemaxus={} staterows={} restores={}",
                                      BridgeConfig::Get().enable ? 1 : 0, GUILDBRIDGE_VERSION,
                                      GuildmasterDatabaseReady ? 1 : 0, BridgeConfig::Get().worldId,
                                      BotDumps::Instance().Taken(), BotDumps::Instance().Failed(), events.Written(),
                                      events.Dropped(), events.Queued(), events.LastFlushUs(),
                                      events.MaxFlushUs(), OrderRunner::Instance().Finished(),
                                      SimpleOrders::QueuedSnapshots(), StateWriter::Instance().LastBuildUs(),
-                                     StateWriter::Instance().MaxBuildUs(), StateWriter::Instance().LastRows());
+                                     StateWriter::Instance().MaxBuildUs(), StateWriter::Instance().LastRows(),
+                                     RestoreMgr::Instance().Queued());
             return true;
         }
         if ((sub == "snapshot" || sub == "clone" || sub == "testbots" || sub == "guild" || sub == "bot" ||
@@ -187,7 +189,7 @@ public:
             bool const online = ObjectAccessor::FindConnectedPlayer(guid);
             if (words[1] == "logout" && online)
                 PlayerbotsAdapter::Logout(guid);
-            else if (words[1] == "login" && !online)
+            else if (words[1] == "login" && !online && !RestoreMgr::Instance().IsRestoring(guid.GetCounter()))
                 PlayerbotsAdapter::LoginMasterless(guid);
             // `now=` is read right after the call (a logout is immediate): playerbots may log a population bot back
             // in within seconds, faster than a poll can see it offline.
@@ -240,9 +242,11 @@ public:
                             {
                                 ObjectGuid const guid =
                                     ObjectGuid::Create<HighGuid::Player>((*result)[0].Get<uint32>());
-                                // A registered guild's leader stays offline (spec §4.8: it never logs in).
+                                // A registered guild's leader stays offline (spec §4.8: it never logs in); a bot
+                                // being restored is logged in by the restore when it is back.
                                 if (login && !ObjectAccessor::FindConnectedPlayer(guid) &&
-                                    !GuildRegistry::Instance().IsRegisteredLeader(guid))
+                                    !GuildRegistry::Instance().IsRegisteredLeader(guid) &&
+                                    !RestoreMgr::Instance().IsRestoring(guid.GetCounter()))
                                     PlayerbotsAdapter::LoginMasterless(guid);
                                 else if (!login)
                                     PlayerbotsAdapter::Logout(guid);

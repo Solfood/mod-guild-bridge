@@ -22,6 +22,8 @@ public:
     void Update(uint32 diff);
     void WriteNow();
     void SetFocus(uint32 guid, GuildBridge::Focus focus, uint64 orderId);
+    // The bot left our guild: its stored focus row goes and its in-game focus is reset at once.
+    void ClearFocus(uint32 guid);
     GuildBridge::Focus FocusOf(uint32 guid) const;
     uint32 LastBuildUs() const { return _lastBuildUs; }  // world-thread cost of the last pass (`bridge status`)
     uint32 MaxBuildUs() const { return _maxBuildUs; }

@@ -10,6 +10,7 @@
 #include "GuildRegistry.h"
 #include "Log.h"
 #include "OrderRunner.h"
+#include "RestoreMgr.h"
 #include "ScriptMgr.h"
 #include "SimpleOrders.h"
 #include "StateWriter.h"
@@ -35,6 +36,7 @@ public:
         GuildRegistry::Instance().LoadAtStartup();  // first: everything after it may ask for guild roles
         Firsts::Instance().LoadAtStartup();
         BotDumps::Instance().Start();
+        RestoreMgr::Instance().RecoverAtStartup();  // first: it decides what happens to cut restores
         OrderRunner::Instance().RecoverAtStartup();
         StateWriter::Instance().LoadFocusAtStartup();
     }
@@ -48,6 +50,7 @@ public:
         GuildRegistry::Instance().Update(diff);
         SimpleOrders::Update(diff);
         OrderRunner::Instance().Update(diff);
+        RestoreMgr::Instance().Update(diff);
         StateWriter::Instance().Update(diff);
         _flushInMs = _flushInMs > diff ? _flushInMs - diff : 0;
         if (!_flushInMs)

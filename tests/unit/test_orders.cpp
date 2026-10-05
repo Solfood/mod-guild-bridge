@@ -93,6 +93,17 @@ int main()
     OrderRow restoreGuild = Row("restore");
     restoreGuild.guild = "test";
     CHECK_EQ(std::string("missing field taken_before"), ParseOrder(restoreGuild, out));
+    // Restore test seams: only the two known ones; a typo fails the order instead of running a real restore.
+    restore.testFail = "load";
+    CHECK_EQ(std::string(""), ParseOrder(restore, out));
+    CHECK_EQ(std::string("load"), out.testFail);
+    restore.testFail = "crash";
+    CHECK_EQ(std::string(""), ParseOrder(restore, out));
+    restore.testFail = "lod";
+    CHECK_EQ(std::string("bad value for test_fail"), ParseOrder(restore, out));
+    restoreGuild.takenBefore = "1700000000";
+    restoreGuild.testFail = "boom";
+    CHECK_EQ(std::string("bad value for test_fail"), ParseOrder(restoreGuild, out));
 
     // Values that would overflow their field are refused, never wrapped.
     OrderRow big = Row("invite");

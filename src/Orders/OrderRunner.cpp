@@ -9,6 +9,7 @@
 #include "GuildmasterDatabase.h"
 #include "Log.h"
 #include "QueryCallback.h"
+#include "RestoreMgr.h"
 #include "SimpleOrders.h"
 #include "StringFormat.h"
 #include <ctime>
@@ -49,7 +50,8 @@ void OrderRunner::RecoverAtStartup()
         "UPDATE orders SET status = 'failed', result = 'interrupted by a server restart', done_at = {} "
         "WHERE status = 'running' AND type NOT IN ('restore')",
         static_cast<uint32>(std::time(nullptr))));
-    // Restores are recovered by RestoreMgr (Task 10), which may have to put a deleted character back first.
+    // Restores are recovered by RestoreMgr::RecoverAtStartup (called just before this), which may have to put a
+    // deleted character back first.
 }
 
 void OrderRunner::Finish(uint64 id, OrderResult const& result)
@@ -151,8 +153,11 @@ void OrderRunner::Handle(GuildBridge::OrderRow const& row)
         case GuildBridge::OrderType::SnapshotAll:
             SimpleOrders::SnapshotAll(id, order.dryRun, [id](OrderResult const& result) { Finish(id, result); });
             break;
+        case GuildBridge::OrderType::Restore:
+            RestoreMgr::Instance().Begin(order, [id](OrderResult const& result) { Finish(id, result); });
+            break;
         default:
-            // restore: Task 10; run_dungeon: 11; create_guild, create_founders: 15
+            // run_dungeon: Task 11; create_guild, create_founders: 15
             Finish(id, {false, "order type not available yet", ""});
             break;
     }
