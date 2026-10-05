@@ -61,6 +61,7 @@ private:
     // Guild::Create writes the guild row asynchronously; playerbots' cache reads that table, so it is read
     // again once the write has surely landed (until then a new guild may not count as "real").
     uint32 _revalidateInMs = 0;
+    ObjectGuid _lateLogout;  // a leader whose login outlasted the wait: logged out once it arrives
 };
 
 #endif

@@ -22,6 +22,10 @@ bool PlayerbotsAdapter::IsRandomBot(uint32 guid) { return sRandomPlayerbotMgr.Is
 // never re-rolls or relocates it, and (fork, preflight C3) it does not use up the population's login budget.
 void PlayerbotsAdapter::LoginMasterless(ObjectGuid guid) { sRandomPlayerbotMgr.AddPlayerBot(guid, 0); }
 
+// The holder records the bot and runs its login steps (bot-guild assignment among them) in one call, after the
+// player is already in the world: only from then on can Logout find it.
+bool PlayerbotsAdapter::IsMasterlessLoggedIn(ObjectGuid guid) { return sRandomPlayerbotMgr.GetPlayerBot(guid); }
+
 void PlayerbotsAdapter::Logout(ObjectGuid guid)
 {
     if (sRandomPlayerbotMgr.GetPlayerBot(guid))

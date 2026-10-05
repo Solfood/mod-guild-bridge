@@ -19,6 +19,7 @@ bool IsBot(Player* player);             // has a PlayerbotAI (any thread)
 bool IsRandomBot(uint32 guid);          // a population bot (RNDBOT account)
 void LoginMasterless(ObjectGuid guid);  // log a character in as a bot with no master (clones, guild master)
 void Logout(ObjectGuid guid);           // log a bot out through whichever holder owns it
+bool IsMasterlessLoggedIn(ObjectGuid guid);  // the masterless login finished (playerbots' login steps done)
 bool IsBotAccount(uint32 accountId);    // in AiPlayerbot.RandomBotAccounts (any thread after startup)
 bool IsBotAccountName(std::string const& accountName);  // starts with AiPlayerbot.RandomBotAccountPrefix
 void ValidateGuildCache();              // world thread: playerbots re-reads which guilds are "real"

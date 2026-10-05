@@ -41,12 +41,13 @@ void GuildRegistry::LoadAtStartup()
                 Field* fields = result->Fetch();
                 uint32 const id = fields[0].Get<uint32>();
                 GuildRole const role = RoleFromName(fields[1].Get<std::string>());
-                // A guild disbanded behind the bridge's back is forgotten (its row is replaced when the role is
-                // founded again), so the role can be refounded.
+                // A guild disbanded behind the bridge's back is forgotten, row and all, so the role can be
+                // founded again.
                 if (!sGuildMgr->GetGuildById(id))
                 {
-                    LOG_ERROR("module.guildbridge", "GUILDBRIDGE {} guild {} no longer exists; ignoring it",
+                    LOG_ERROR("module.guildbridge", "GUILDBRIDGE {} guild {} no longer exists; forgetting it",
                               RoleName(role), id);
+                    GuildmasterDatabase.Execute("DELETE FROM guilds WHERE guild_id = {}", id);
                     continue;
                 }
                 if (role == GuildRole::User)
@@ -163,18 +164,26 @@ void GuildRegistry::Update(uint32 diff)
         if (!_revalidateInMs)
             PlayerbotsAdapter::ValidateGuildCache();
     }
+    if (_lateLogout && PlayerbotsAdapter::IsMasterlessLoggedIn(_lateLogout))
+    {
+        PlayerbotsAdapter::Logout(_lateLogout);
+        _lateLogout.Clear();
+    }
     if (!_pending)
         return;
     Pending& pending = *_pending;
     pending.waitedMs += diff;
     Player* leader = ObjectAccessor::FindPlayer(pending.leader);
-    if (!leader || !leader->IsInWorld())
+    // A leader we logged in must also have finished playerbots' login, or the logout below would miss it.
+    bool const ready = leader && leader->IsInWorld() &&
+                       (!pending.weLoggedIn || PlayerbotsAdapter::IsMasterlessLoggedIn(pending.leader));
+    if (!ready)
     {
         if (pending.waitedMs > LeaderLoginTimeoutMs)
         {
             LOG_ERROR("module.guildbridge", "GUILDBRIDGE guild {}: the leader never came online", pending.name);
             if (pending.weLoggedIn)
-                PlayerbotsAdapter::Logout(pending.leader);
+                _lateLogout = pending.leader;  // its login may still finish: log it out then
             Created done = std::move(pending.done);
             _pending.reset();
             if (done)
