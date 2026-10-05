@@ -31,6 +31,7 @@
 #include "SimpleOrders.h"
 #include "StateWriter.h"
 #include "StringFormat.h"
+#include "StuckDetector.h"
 #include "TemporarySummon.h"
 #include <cstdlib>
 #include <functional>
@@ -120,9 +121,11 @@ public:
         if (sub == "status")
         {
             EventSink const& events = EventSink::Instance();
+            StuckDetector const& stuck = StuckDetector::Instance();
             handler->PSendSysMessage("BRIDGE enabled={} version={} db={} world={} snapshots={} snapfail={} events={} "
                                      "dropped={} queued={} flushus={} flushmaxus={} orders={} snapq={} stateus={} "
-                                     "statemaxus={} staterows={} restores={} runs={} runbots={}",
+                                     "statemaxus={} staterows={} restores={} runs={} runbots={} incidents_open={} "
+                                     "stuckbots={} stuckscanus={} stuckscanticks={} stuckstepmaxus={}",
                                      BridgeConfig::Get().enable ? 1 : 0, GUILDBRIDGE_VERSION,
                                      GuildmasterDatabaseReady ? 1 : 0, BridgeConfig::Get().worldId,
                                      BotDumps::Instance().Taken(), BotDumps::Instance().Failed(), events.Written(),
@@ -131,11 +134,12 @@ public:
                                      SimpleOrders::QueuedSnapshots(), StateWriter::Instance().LastBuildUs(),
                                      StateWriter::Instance().MaxBuildUs(), StateWriter::Instance().LastRows(),
                                      RestoreMgr::Instance().Queued(), DungeonRunMgr::Instance().Running(),
-                                     RunRegistry::Instance().Bots());
+                                     RunRegistry::Instance().Bots(), stuck.OpenCount(), stuck.LastScanBots(),
+                                     stuck.LastScanUs(), stuck.LastScanTicks(), stuck.MaxStepUs());
             return true;
         }
         if ((sub == "snapshot" || sub == "clone" || sub == "testbots" || sub == "guild" || sub == "bot" ||
-             sub == "event" || sub == "test" || sub == "order" || sub == "state" || sub == "run") &&
+             sub == "event" || sub == "test" || sub == "order" || sub == "state" || sub == "run" || sub == "stuck") &&
             !BridgeConfig::Get().enable)
         {
             handler->PSendSysMessage("BRIDGEERR the bridge is disabled (GuildBridge.Enable = 0)");
@@ -354,6 +358,35 @@ public:
             for (uint32 i = 0; i < n; ++i)
                 EventSink::Instance().Push(GuildBridge::EventType::Fake, 0, 0, 0, GuildBridge::FakePayload("burst"));
             handler->PSendSysMessage("BRIDGEOK burst {}", n);
+            return true;
+        }
+        // Stuck-bot incidents (Task 13). `stuck test <name> <deadS> <noProgressS> <pathFails>` judges only that bot
+        // with those thresholds (what is open is closed first); `stuck reset` goes back to every bot; `stuck scan`
+        // takes a whole look now.
+        if (sub == "stuck" && words.size() > 1)
+        {
+            if (words[1] == "test" && words.size() > 5)
+            {
+                std::string name = words[2];
+                normalizePlayerName(name);
+                GuildBridge::Thresholds t;
+                t.deadS = static_cast<uint32>(std::strtoul(words[3].c_str(), nullptr, 10));
+                t.noProgressS = static_cast<uint32>(std::strtoul(words[4].c_str(), nullptr, 10));
+                t.pathFails = static_cast<uint32>(std::strtoul(words[5].c_str(), nullptr, 10));
+                StuckDetector::Instance().SetTest(name, t);
+            }
+            else if (words[1] == "reset")
+                StuckDetector::Instance().Reset();
+            else if (words[1] == "scan")
+                StuckDetector::Instance().ScanNow();
+            else
+            {
+                handler->PSendSysMessage("BRIDGEERR usage: bridge stuck test <name> <deadS> <noProgressS> <pathFails> "
+                                         "| reset | scan");
+                return false;
+            }
+            handler->PSendSysMessage("BRIDGEOK stuck {} open={} bots={}", words[1],
+                                     StuckDetector::Instance().OpenCount(), StuckDetector::Instance().Tracked());
             return true;
         }
         if (sub == "test" && words.size() > 3 && words[1] == "killby")

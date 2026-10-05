@@ -16,6 +16,7 @@
 #include "ProfessionPicker.h"
 #include "RaisingMgr.h"
 #include "RandomPlayerbotMgr.h"
+#include "StringFormat.h"
 #include <algorithm>
 #include <cctype>
 
@@ -187,4 +188,20 @@ void PlayerbotsAdapter::ClearGoTo(Player* bot)
         }
     if (bot->GetMotionMaster()->GetCurrentMovementGeneratorType() == POINT_MOTION_TYPE)
         bot->GetMotionMaster()->Clear();
+}
+
+uint32 PlayerbotsAdapter::StuckTeleports(Player* bot)
+{
+    PlayerbotAI* botAI = GET_PLAYERBOT_AI(bot);
+    return botAI ? botAI->rpgInfo.stuckTeleports : 0;
+}
+
+std::string PlayerbotsAdapter::LastStuckDest(Player* bot)
+{
+    PlayerbotAI* botAI = GET_PLAYERBOT_AI(bot);
+    if (!botAI || !botAI->rpgInfo.stuckTeleports)
+        return "";
+    WorldPosition const& d = botAI->rpgInfo.lastStuckDest;
+    return Acore::StringFormat("{}:{:.0f}:{:.0f}:{:.0f}", d.GetMapId(), d.GetPositionX(), d.GetPositionY(),
+                               d.GetPositionZ());
 }

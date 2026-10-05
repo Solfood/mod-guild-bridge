@@ -128,3 +128,52 @@ GuildBridge.Dungeon.MaxConcurrentRuns = 3
 #        Default:     9000
 
 GuildBridge.Dungeon.OverallTimeoutS = 9000
+
+#    GuildBridge.Stuck.Enable
+#        Description: Look for stuck bots and record them in guildmaster.incidents (the first piece of
+#                     GM-BOTAI's stuck-bot toolkit). Every ScanS seconds every online bot (population and
+#                     guild; not the test account's clones) is looked at, spread over world ticks (PerTick
+#                     bots per tick). An incident opens when a bot has been dead for DeadS, has made no
+#                     progress for NoProgressS (not moved MoveYards from where it last made progress, and no
+#                     XP, level or money change), or has hit playerbots' "stuck -> teleport" fallback
+#                     PathFails times within PathWindowS. It closes when the condition clears, when the bot
+#                     logs out, or at a restart. Bots in a dungeon run, held, being restored, in a raising, or
+#                     inside a dungeon or battleground are not judged for "no progress" (the other kinds still
+#                     open, with that context in the details).
+#        Default:     1 - (Enabled)
+#                     0 - (Disabled)
+
+GuildBridge.Stuck.Enable = 1
+
+#    GuildBridge.Stuck.DeadS
+#    GuildBridge.Stuck.NoProgressS
+#        Description: Seconds dead (dead_long) and seconds without progress (no_progress). At least 1.
+#        Default:     600, 900
+
+GuildBridge.Stuck.DeadS = 600
+GuildBridge.Stuck.NoProgressS = 900
+
+#    GuildBridge.Stuck.MoveYards
+#        Description: A move of more than this many yards from where the bot last made progress counts as
+#                     progress.
+#        Default:     40
+
+GuildBridge.Stuck.MoveYards = 40
+
+#    GuildBridge.Stuck.PathFails
+#    GuildBridge.Stuck.PathWindowS
+#        Description: path_fail opens after this many stuck teleports (the fork's counter) within the window
+#                     (seconds, at least 60), and closes once none is left in the window.
+#        Default:     3, 900
+
+GuildBridge.Stuck.PathFails = 3
+GuildBridge.Stuck.PathWindowS = 900
+
+#    GuildBridge.Stuck.ScanS
+#    GuildBridge.Stuck.PerTick
+#        Description: Seconds between looks at every bot (at least 10), and bots judged per world tick (at
+#                     least 1; 1000 bots at 100 per tick take 10 ticks).
+#        Default:     60, 100
+
+GuildBridge.Stuck.ScanS = 60
+GuildBridge.Stuck.PerTick = 100

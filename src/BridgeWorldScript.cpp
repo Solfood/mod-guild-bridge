@@ -15,6 +15,7 @@
 #include "ScriptMgr.h"
 #include "SimpleOrders.h"
 #include "StateWriter.h"
+#include "StuckDetector.h"
 #include "WorldScript.h"
 
 // Startup and the one world-thread tick that drives every bridge part (later tasks add calls here).
@@ -41,6 +42,7 @@ public:
         DungeonRunMgr::Instance().LoadAtStartup();  // entrances; runs cut by the restart end as abandoned
         OrderRunner::Instance().RecoverAtStartup();
         StateWriter::Instance().LoadFocusAtStartup();
+        StuckDetector::Instance().CloseAllAtStartup();
     }
 
     void OnUpdate(uint32 diff) override
@@ -55,6 +57,7 @@ public:
         RestoreMgr::Instance().Update(diff);
         DungeonRunMgr::Instance().Update(diff);
         StateWriter::Instance().Update(diff);
+        StuckDetector::Instance().Update(diff);
         _flushInMs = _flushInMs > diff ? _flushInMs - diff : 0;
         if (!_flushInMs)
         {

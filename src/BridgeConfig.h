@@ -32,6 +32,15 @@ struct BridgeConfig
     uint32 runLevelAbove = 5;
     uint32 runMaxConcurrent = 3;          // .MaxConcurrentRuns: runs at the same time (each costs world tick time)
     uint32 runOverallTimeoutS = 9000;     // .OverallTimeoutS: a run with no result by then is abandoned
+    // GuildBridge.Stuck.* (stuck-bot incidents, Task 13)
+    bool stuckEnable = true;          // .Enable
+    uint32 stuckDeadS = 600;          // .DeadS: dead this long
+    uint32 stuckNoProgressS = 900;    // .NoProgressS: no move beyond MoveYards and no XP/level/money change
+    float stuckMoveYards = 40.f;      // .MoveYards
+    uint32 stuckPathFails = 3;        // .PathFails: the fork's stuck -> teleport fallback this many times ...
+    uint32 stuckPathWindowS = 900;    // .PathWindowS: ... within this window
+    uint32 stuckScanS = 60;           // .ScanS: one look at every online bot this often
+    uint32 stuckPerTick = 100;        // .PerTick: bots judged per world tick (the look is spread over ticks)
 
     // "host;port;user;password;database" -> "database" ("" when the string has fewer than 5 fields).
     static std::string DatabaseNameOf(std::string const& info);

@@ -34,6 +34,14 @@ void BridgeConfig::Load()
     runMaxConcurrent = sConfigMgr->GetOption<uint32>("GuildBridge.Dungeon.MaxConcurrentRuns", 3);
     runOverallTimeoutS =
         std::max<uint32>(600, sConfigMgr->GetOption<uint32>("GuildBridge.Dungeon.OverallTimeoutS", 9000));
+    stuckEnable = sConfigMgr->GetOption<bool>("GuildBridge.Stuck.Enable", true);
+    stuckDeadS = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("GuildBridge.Stuck.DeadS", 600));
+    stuckNoProgressS = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("GuildBridge.Stuck.NoProgressS", 900));
+    stuckMoveYards = sConfigMgr->GetOption<float>("GuildBridge.Stuck.MoveYards", 40.f);
+    stuckPathFails = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("GuildBridge.Stuck.PathFails", 3));
+    stuckPathWindowS = std::max<uint32>(60, sConfigMgr->GetOption<uint32>("GuildBridge.Stuck.PathWindowS", 900));
+    stuckScanS = std::max<uint32>(10, sConfigMgr->GetOption<uint32>("GuildBridge.Stuck.ScanS", 60));
+    stuckPerTick = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("GuildBridge.Stuck.PerTick", 100));
 }
 
 std::string BridgeConfig::DatabaseNameOf(std::string const& info)

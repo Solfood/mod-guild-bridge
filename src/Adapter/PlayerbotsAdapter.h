@@ -53,6 +53,10 @@ uint8 DurabilityPct(Player* bot);        // 0-100 (playerbots "durability" value
 uint8 GetFocus(Player* bot);             // fork NewRpgInfo::focus (0-5), 0 without AI
 void SetFocus(Player* bot, uint8 focus);  // the fork forgets it at logout: the bridge re-applies it
 
+// Stuck-bot incidents (Task 13). World thread. The fork's counter lives in memory: it starts again at 0 at login.
+uint32 StuckTeleports(Player* bot);      // fork NewRpgInfo::stuckTeleports (0 without AI)
+std::string LastStuckDest(Player* bot);  // "map:x:y:z" of the last stuck move, or ""
+
 // Dungeon-run travel (Task 11). World thread; call GoTo again every few seconds until the bot is there.
 // Population bots use playerbots' own "go to camp" activity (paths, mounts, fights what attacks it); clones, which
 // have no new-RPG brain, walk with pathfinding in legs of at most 150 yards.
