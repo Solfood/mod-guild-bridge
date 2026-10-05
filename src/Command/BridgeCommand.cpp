@@ -189,7 +189,10 @@ public:
                 PlayerbotsAdapter::Logout(guid);
             else if (words[1] == "login" && !online)
                 PlayerbotsAdapter::LoginMasterless(guid);
-            handler->PSendSysMessage("BRIDGEOK test {} {}", words[1], name);
+            // `now=` is read right after the call (a logout is immediate): playerbots may log a population bot back
+            // in within seconds, faster than a poll can see it offline.
+            handler->PSendSysMessage("BRIDGEOK test {} {} was={} now={}", words[1], name, online ? 1 : 0,
+                                     ObjectAccessor::FindConnectedPlayer(guid) ? 1 : 0);
             return true;
         }
         if (sub == "order" && words.size() > 1 && words[1] == "poll")
