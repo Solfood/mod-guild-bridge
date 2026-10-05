@@ -1,6 +1,8 @@
 // tests/unit/test_payloads.cpp
 #include "../../src/Core/EventPayloads.h"
 #include "check.h"
+#include <clocale>
+#include <cmath>
 
 using namespace GuildBridge;
 
@@ -54,5 +56,33 @@ int main()
              RunEndPayload(17, "wiped", "", 1, 4, 1830, 2));
     CHECK_EQ(std::string("{\"snapshot_id\":42,\"ok\":true,\"reason\":\"\"}"), RestorePayload(42, true, ""));
     CHECK_EQ(std::string("{\"note\":\"test\"}"), FakePayload("test"));
+    // UTF-8: valid multi-byte text unchanged; invalid bytes become U+FFFD.
+    CHECK_EQ(std::string("{\"n\":\"Zo\xC3\xAB \xE5\x90\x8D\xE5\x89\x8D \xF0\x9F\x98\x80\"}"),
+             JsonObject().Str("n", "Zo\xC3\xAB \xE5\x90\x8D\xE5\x89\x8D \xF0\x9F\x98\x80").Build());
+    CHECK_EQ(std::string("{\"n\":\"a\xEF\xBF\xBD" "b\"}"), JsonObject().Str("n", "a\xE9" "b").Build());  // Latin-1
+    // Cut off 3-byte sequence: each leftover byte becomes one U+FFFD.
+    CHECK_EQ(std::string("{\"n\":\"a\xEF\xBF\xBD\xEF\xBF\xBD\"}"), JsonObject().Str("n", "a\xE5\x90").Build());
+    // Overlong form.
+    CHECK_EQ(std::string("{\"n\":\"\xEF\xBF\xBD\xEF\xBF\xBD\"}"), JsonObject().Str("n", "\xC0\x80").Build());
+    CHECK_EQ(std::string("{\"n\":\"\xEF\xBF\xBD\xEF\xBF\xBD\xEF\xBF\xBD\"}"),
+             JsonObject().Str("n", "\xED\xA0\x80").Build());  // surrogate
+    // Other escapes: \r \t NUL, 0x1f escaped, 0x7f not, escaped key, empty array.
+    CHECK_EQ(std::string("{\"k\\\"\":\"\\r\\t\\u0000\\u001f\x7f\",\"e\":[]}"),
+             JsonObject().Str("k\"", std::string("\r\t\0\x1f\x7f", 5)).UIntArray("e", {}).Build());
+    // Numbers: non-finite becomes null; rounding to one decimal; negative.
+    CHECK_EQ(std::string("{\"a\":null,\"b\":null,\"c\":null,\"d\":-0.5,\"e\":1.3}"),
+             JsonObject().Num("a", std::nan("")).Num("b", HUGE_VAL).Num("c", -HUGE_VAL).Num("d", -0.5)
+                 .Num("e", 1.26f).Build());
+    // Comma-decimal locale must not change the output (skipped silently if the locale is not installed).
+    if (std::setlocale(LC_NUMERIC, "de_DE.UTF-8"))
+        CHECK_EQ(std::string("{\"f\":1.3}"), JsonObject().Num("f", 1.26).Build());
+    // EventTypeName: all 19 in order; out of range is safe.
+    char const* const expected[] = {"level", "loot", "death", "pvp_kill", "achievement", "boss_kill", "boss_wipe",
+                                    "guild_join", "guild_leave", "guild_rank", "guild_founded", "first", "run_start",
+                                    "run_travel", "run_teleport", "run_ambush", "run_end", "restore", "fake"};
+    for (int i = 0; i < 19; ++i)
+        CHECK_EQ(std::string(expected[i]), std::string(EventTypeName(static_cast<EventType>(i))));
+    CHECK_EQ(std::string("?"), std::string(EventTypeName(EventType::Count)));
+    CHECK_EQ(std::string("?"), std::string(EventTypeName(static_cast<EventType>(200))));
     return UnitFailures();
 }

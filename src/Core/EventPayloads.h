@@ -28,7 +28,8 @@ inline char const* EventTypeName(EventType type)
                                         "guild_founded", "first",      "run_start",  "run_travel", "run_teleport",
                                         "run_ambush", "run_end",       "restore",    "fake"};
     static_assert(sizeof(names) / sizeof(names[0]) == static_cast<std::size_t>(EventType::Count));
-    return names[static_cast<std::size_t>(type)];
+    auto const index = static_cast<std::size_t>(type);
+    return index < static_cast<std::size_t>(EventType::Count) ? names[index] : "?";
 }
 
 struct Where
