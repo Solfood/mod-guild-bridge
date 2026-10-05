@@ -96,6 +96,18 @@ inline std::vector<std::string> RoleWarnings(std::array<uint8_t, 5> const& class
         warnings.push_back("the healer slot has no healing class");
     return warnings;
 }
+
+// Roles in role order (tank, heal, dps, dps, dps) as mod-dungeon-clear reads them: by talent spec ("tank", "heal" or
+// "dps"; playerbots' IsTank/IsHeal by spec). dungeon-clear elects its leader among tanks only, so a party whose tank
+// does not read as a tank never starts ("dc on did not take"). "" when the tank and healer seats read right.
+inline std::string RoleProblem(std::vector<std::pair<std::string, std::string>> const& seats)
+{
+    if (seats.size() > 0 && seats[0].second != "tank")
+        return "no tank in this party: " + seats[0].first + " has no tank spec";
+    if (seats.size() > 1 && seats[1].second != "heal")
+        return "no healer in this party: " + seats[1].first + " has no healer spec";
+    return "";
+}
 }  // namespace GuildBridge
 
 #endif

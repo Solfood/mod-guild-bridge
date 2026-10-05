@@ -74,6 +74,7 @@ private:
         std::string testFail;
         std::string dcRunId;
         uint32 readTries = 0;
+        uint32 partialTries = 0;  // reads that found the line half-written
         bool dcStopAsked = false;  // the overall time limit passed while dungeon-clear had the party
         std::future<std::string> fileRead;
         std::function<void(OrderResult const&)> finish;

@@ -153,6 +153,7 @@ void DungeonRunMgr::Begin(ParsedOrder const& order, std::function<void(OrderResu
     std::vector<Spot> spots;
     std::vector<std::pair<std::string, uint32_t>> levels;
     std::array<uint8_t, 5> classes{};
+    std::vector<std::pair<std::string, std::string>> seats;  // name, role by talent spec (as dungeon-clear reads it)
     TeamId team = TEAM_NEUTRAL;
     bool allTest = true;
     for (std::size_t i = 0; i < 5; ++i)
@@ -195,6 +196,7 @@ void DungeonRunMgr::Begin(ParsedOrder const& order, std::function<void(OrderResu
         spots.push_back({bot->GetMapId(), bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ()});
         levels.emplace_back(name, bot->GetLevel());
         classes[i] = bot->getClass();
+        seats.emplace_back(name, PlayerbotsAdapter::SpecRole(bot));
         Member member;
         member.guid = guid;
         member.name = name;
@@ -210,6 +212,11 @@ void DungeonRunMgr::Begin(ParsedOrder const& order, std::function<void(OrderResu
         levels, BandFor(order.heroic ? info.heroicLevel : info.recommendedLevel, cfg.runLevelBelow, cfg.runLevelAbove));
     if (!levelProblem.empty())
         return finish({false, levelProblem, ""});
+    // dungeon-clear elects its leader among tanks by talent spec: without one, `dc on` silently does nothing and the
+    // run would end "dc on did not take" after the whole trip. Refuse here, with a reason the player can act on.
+    std::string const roleProblem = RoleProblem(seats);
+    if (!roleProblem.empty())
+        return finish({false, roleProblem, ""});
 
     std::vector<std::string> const warnings = RoleWarnings(classes);
     run->warningsJson = "[";
@@ -543,6 +550,8 @@ void DungeonRunMgr::Monitor(Run& run, uint32 diff)
     if (run.fileRead.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
         return;
     DcOutcome const outcome = FindDcRun(run.fileRead.get(), run.dcRunId);
+    if (outcome.partial && ++run.partialTries < 12)
+        return;  // dungeon-clear is still writing the line (no '\n' yet): read again on the next poll, never final
     if (!outcome.found)
     {
         if (++run.readTries < 3)

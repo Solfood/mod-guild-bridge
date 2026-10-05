@@ -24,6 +24,15 @@ bool PlayerbotsAdapter::IsBot(Player* player) { return player && GET_PLAYERBOT_A
 
 bool PlayerbotsAdapter::IsRandomBot(uint32 guid) { return sRandomPlayerbotMgr.IsRandomBot(guid); }
 
+char const* PlayerbotsAdapter::SpecRole(Player* player)
+{
+    if (PlayerbotAI::IsTank(player, /*bySpec*/ true))
+        return "tank";
+    if (PlayerbotAI::IsHeal(player, /*bySpec*/ true))
+        return "heal";
+    return "dps";
+}
+
 // Masterless logins are owned by sRandomPlayerbotMgr (the same path mod-dungeon-clear's headless driver uses).
 // A clone is not a random bot: its account is not in AiPlayerbot.RandomBotAccounts, so the population manager
 // never re-rolls or relocates it, and (fork, preflight C3) it does not use up the population's login budget.

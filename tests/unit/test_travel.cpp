@@ -40,5 +40,20 @@ int main()
     CHECK_EQ(static_cast<std::size_t>(2), w.size());
     CHECK_EQ(std::string("the tank slot has no tank class"), w[0]);
     CHECK_EQ(std::string("the healer slot has no healing class"), w[1]);
+
+    // Roles as mod-dungeon-clear reads them (by talent spec): slot 0 must read tank, slot 1 heal.
+    using Seat = std::pair<std::string, std::string>;
+    CHECK_EQ(std::string(""), RoleProblem({Seat{"Tom", "tank"}, Seat{"Hal", "heal"}, Seat{"Dee", "dps"},
+                                           Seat{"Dan", "dps"}, Seat{"Dot", "dps"}}));
+    CHECK_EQ(std::string("no tank in this party: Tom has no tank spec"),
+             RoleProblem({Seat{"Tom", "dps"}, Seat{"Hal", "heal"}, Seat{"Dee", "tank"}, Seat{"Dan", "dps"},
+                          Seat{"Dot", "dps"}}));
+    CHECK_EQ(std::string("no healer in this party: Hal has no healer spec"),
+             RoleProblem({Seat{"Tom", "tank"}, Seat{"Hal", "dps"}, Seat{"Dee", "heal"}, Seat{"Dan", "dps"},
+                          Seat{"Dot", "dps"}}));
+    CHECK_EQ(std::string("no tank in this party: Tom has no tank spec"),  // the tank is named first
+             RoleProblem({Seat{"Tom", "heal"}, Seat{"Hal", "tank"}, Seat{"Dee", "dps"}, Seat{"Dan", "dps"},
+                          Seat{"Dot", "dps"}}));
+    CHECK_EQ(std::string(""), RoleProblem({}));
     return UnitFailures();
 }

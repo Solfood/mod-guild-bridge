@@ -22,7 +22,25 @@ int main()
     CHECK_EQ(std::string("success"), FindDcRun(text, "r-1").result);
     CHECK_TRUE(!FindDcRun(text, "r-3").found);
     CHECK_TRUE(!FindDcRun("", "r-1").found);
-    CHECK_TRUE(FindDcRun("{\"runId\":\"r-1\"", "r-1").found);  // truncated line: found, fields empty
+    // A truncated last line (the tail read caught dungeon-clear mid-write): not final, retry on the next poll.
+    DcOutcome const cut = FindDcRun(text + "{\"runId\":\"r-3\",\"result\":\"succ", "r-3");
+    CHECK_TRUE(!cut.found);
+    CHECK_TRUE(cut.partial);
+    CHECK_TRUE(!FindDcRun("{\"runId\":\"r-1\"", "r-1").found);
+    CHECK_TRUE(FindDcRun("{\"runId\":\"r-1\"", "r-1").partial);
+    CHECK_TRUE(!FindDcRun(text, "r-2").partial);
+    CHECK_TRUE(!FindDcRun(text, "r-3").partial);  // absent: not partial either
+    // Run ids match exactly, never by prefix: r-1 is not r-10, and r-10 is not r-1.
+    std::string const tens =
+        "{\"runId\":\"r-10\",\"result\":\"wipe\",\"durationS\":7}\n"
+        "{\"runId\":\"r-1\",\"result\":\"success\",\"durationS\":5}\n"
+        "{\"runId\":\"r-100\",\"result\":\"no_progress\",\"durationS\":9}\n";
+    CHECK_EQ(std::string("success"), FindDcRun(tens, "r-1").result);
+    CHECK_EQ(5u, FindDcRun(tens, "r-1").durationS);
+    CHECK_EQ(std::string("wipe"), FindDcRun(tens, "r-10").result);
+    CHECK_EQ(std::string("no_progress"), FindDcRun(tens, "r-100").result);
+    CHECK_TRUE(!FindDcRun("{\"runId\":\"r-10\",\"result\":\"wipe\"}\n", "r-1").found);
+    CHECK_TRUE(!FindDcRun("{\"runId\":\"r-1\",\"result\":\"wipe\"}\n", "r-10").found);
     CHECK_EQ(std::string("cleared"), std::string(RunResultFromDc("success")));
     CHECK_EQ(std::string("wiped"), std::string(RunResultFromDc("wipe")));
     CHECK_EQ(std::string("abandoned"), std::string(RunResultFromDc("no_progress")));
