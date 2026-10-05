@@ -5,6 +5,7 @@
 #include "BotDumps.h"
 #include "BridgeAsync.h"
 #include "BridgeConfig.h"
+#include "GuildRegistry.h"
 #include "Log.h"
 #include "ScriptMgr.h"
 #include "WorldScript.h"
@@ -24,8 +25,10 @@ public:
     void OnStartup() override
     {
         LOG_INFO("module.guildbridge", "GUILDBRIDGE loaded (enabled={})", BridgeConfig::Get().enable ? 1 : 0);
-        if (BridgeConfig::Get().enable)
-            BotDumps::Instance().Start();
+        if (!BridgeConfig::Get().enable)
+            return;
+        GuildRegistry::Instance().LoadAtStartup();  // first: everything after it may ask for guild roles
+        BotDumps::Instance().Start();
     }
 
     void OnUpdate(uint32 diff) override
@@ -34,6 +37,7 @@ public:
             return;
         BridgeAsync::Process();
         BotDumps::Instance().Update(diff);
+        GuildRegistry::Instance().Update(diff);
     }
 
     void OnShutdown() override { BotDumps::Instance().Stop(); }

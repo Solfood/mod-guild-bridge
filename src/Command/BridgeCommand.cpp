@@ -9,10 +9,14 @@
 #include "Chat.h"
 #include "CommandScript.h"
 #include "DatabaseEnv.h"
+#include "Guild.h"
+#include "GuildMgr.h"
+#include "GuildRegistry.h"
 #include "GuildmasterDatabase.h"
 #include "Log.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
+#include "Player.h"
 #include "PlayerbotsAdapter.h"
 #include "QueryCallback.h"
 #include "ScriptMgr.h"
@@ -52,9 +56,9 @@ void WithAccountId(std::string accountName, std::function<void(uint32)> then)
 void Clone(ObjectGuid source, std::string const& target, std::string const& accountName)
 {
     WithAccountId(accountName, [source, target, accountName](uint32 account) {
-        if (!account)
+        if (!account || PlayerbotsAdapter::IsBotAccount(account))
         {
-            LOG_ERROR("module.guildbridge", "GUILDBRIDGE clone {} failed: no account {}", target, accountName);
+            LOG_ERROR("module.guildbridge", "GUILDBRIDGE clone {} failed: no normal account {}", target, accountName);
             return;
         }
         BotDumps::Instance().Request(
@@ -109,7 +113,8 @@ public:
                                      BotDumps::Instance().Taken(), BotDumps::Instance().Failed());
             return true;
         }
-        if ((sub == "snapshot" || sub == "clone" || sub == "testbots") && !BridgeConfig::Get().enable)
+        if ((sub == "snapshot" || sub == "clone" || sub == "testbots" || sub == "guild" || sub == "bot") &&
+            !BridgeConfig::Get().enable)
         {
             handler->PSendSysMessage("BRIDGEERR the bridge is disabled (GuildBridge.Enable = 0)");
             return false;
@@ -147,8 +152,14 @@ public:
                 handler->PSendSysMessage("BRIDGEERR need an existing source and a free, valid new name");
                 return false;
             }
+            std::string const account = words.size() > 3 ? words[3] : BridgeConfig::Get().testAccount;
+            if (PlayerbotsAdapter::IsBotAccountName(account))
+            {
+                handler->PSendSysMessage("BRIDGEERR clones only go to normal accounts");
+                return false;
+            }
             // The account is looked up asynchronously; a missing account is logged as a failed clone.
-            Clone(guid, target, BridgeConfig::Get().testAccount);
+            Clone(guid, target, account);
             handler->PSendSysMessage("BRIDGEOK clone queued {} -> {}", source, target);
             return true;
         }
@@ -167,7 +178,9 @@ public:
                             {
                                 ObjectGuid const guid =
                                     ObjectGuid::Create<HighGuid::Player>((*result)[0].Get<uint32>());
-                                if (login && !ObjectAccessor::FindConnectedPlayer(guid))
+                                // A registered guild's leader stays offline (spec §4.8: it never logs in).
+                                if (login && !ObjectAccessor::FindConnectedPlayer(guid) &&
+                                    !GuildRegistry::Instance().IsRegisteredLeader(guid))
                                     PlayerbotsAdapter::LoginMasterless(guid);
                                 else if (!login)
                                     PlayerbotsAdapter::Logout(guid);
@@ -175,6 +188,51 @@ public:
                         }));
             });
             handler->PSendSysMessage("BRIDGEOK testbots {}", login ? "login" : "logout");
+            return true;
+        }
+        if (sub == "guild" && words.size() > 4 && words[1] == "create")
+        {
+            std::string name;
+            for (std::size_t i = 4; i < words.size(); ++i)
+                name += (i > 4 ? " " : "") + words[i];
+            std::string const error =
+                GuildRegistry::Instance().BeginCreate(GuildRegistry::RoleFromName(words[2]), name, words[3]);
+            if (!error.empty())
+            {
+                handler->PSendSysMessage("BRIDGEERR {}", error);
+                return false;
+            }
+            handler->PSendSysMessage("BRIDGEOK creating {}", name);
+            return true;
+        }
+        if (sub == "guild" && words.size() > 2 && words[1] == "show")
+        {
+            GuildRole const role = GuildRegistry::RoleFromName(words[2]);
+            uint32 const id = GuildRegistry::Instance().GuildIdFor(role);
+            Guild* guild = id ? sGuildMgr->GetGuildById(id) : nullptr;
+            handler->PSendSysMessage("BRIDGEGUILD role={} id={} members={} real={} raisings={}",
+                                     GuildRegistry::RoleName(role), id, guild ? guild->GetMemberCount() : 0,
+                                     guild && PlayerbotsAdapter::IsRealGuild(id) ? 1 : 0,
+                                     PlayerbotsAdapter::RaisingsUserGuild());
+            return true;
+        }
+        if (sub == "bot" && words.size() > 1)
+        {
+            std::string name = words[1];
+            normalizePlayerName(name);
+            ObjectGuid const guid = sCharacterCache->GetCharacterGuidByName(name);
+            CharacterCacheEntry const* cache = guid ? sCharacterCache->GetCharacterCacheByGuid(guid) : nullptr;
+            if (!cache)
+            {
+                handler->PSendSysMessage("BRIDGEERR no character named {}", name);
+                return false;
+            }
+            Player* bot = ObjectAccessor::FindConnectedPlayer(guid);
+            handler->PSendSysMessage("BRIDGEBOT name={} guid={} online={} random={} held={} guild={} role={}", name,
+                                     guid.GetCounter(), bot ? 1 : 0,
+                                     PlayerbotsAdapter::IsRandomBot(guid.GetCounter()) ? 1 : 0,
+                                     PlayerbotsAdapter::IsHeld(guid.GetCounter()) ? 1 : 0, cache->GuildId,
+                                     GuildRegistry::RoleName(GuildRegistry::Instance().RoleOf(cache->GuildId)));
             return true;
         }
         handler->PSendSysMessage("BRIDGEERR unknown sub-command {}", sub);
