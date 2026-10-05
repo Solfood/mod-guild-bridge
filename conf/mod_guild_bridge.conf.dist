@@ -1,0 +1,12 @@
+[worldserver]
+
+########################################
+# mod-guild-bridge (guildmaster)
+########################################
+
+#    GuildBridge.Enable
+#        Description: Turn the whole bridge on or off (events, orders, snapshots, incidents).
+#        Default:     1 - (Enabled)
+#                     0 - (Disabled)
+
+GuildBridge.Enable = 1
