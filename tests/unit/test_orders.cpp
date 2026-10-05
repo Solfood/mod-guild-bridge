@@ -76,6 +76,9 @@ int main()
     run.testFail = "entrance";  // the run's one Task 11 test seam
     CHECK_EQ(std::string(""), ParseOrder(run, out));
     CHECK_EQ(std::string("entrance"), out.testFail);
+    run.testFail = "dcfail";  // Task 12: the handover to mod-dungeon-clear is refused on purpose
+    CHECK_EQ(std::string(""), ParseOrder(run, out));
+    CHECK_EQ(std::string("dcfail"), out.testFail);
     run.testFail = "entrnce";  // unknown seams fail the order instead of running a real dungeon run
     CHECK_EQ(std::string("bad value for test_fail"), ParseOrder(run, out));
     run.testFail = "";

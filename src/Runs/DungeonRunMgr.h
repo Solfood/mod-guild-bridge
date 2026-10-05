@@ -19,6 +19,10 @@
 // instead of resuming it: LoadAtStartup marks runs left "running" as abandoned (with a run_end event) and the order
 // runner fails their orders, so after a boot no bot is held, in a run or waiting for a run (nothing to put back:
 // a bot keeps whatever position it had reached, as after any logout).
+// At the entrance the party is handed to mod-dungeon-clear (`.dc test start <d> party=...`): the bridge logs the five
+// out (population members stay held), dungeon-clear logs them in, clears, revives them and sends them to their home
+// inn, then logs them out. Its result line in dc_testruns.jsonl is read off the world thread. One run = one dungeon-clear
+// token (a wing for Scarlet Monastery, Dire Maul, ...); wings of one map share the map's outdoor gathering spot.
 class DungeonRunMgr
 {
 public:
@@ -70,6 +74,7 @@ private:
         std::string testFail;
         std::string dcRunId;
         uint32 readTries = 0;
+        bool dcStopAsked = false;  // the overall time limit passed while dungeon-clear had the party
         std::future<std::string> fileRead;
         std::function<void(OrderResult const&)> finish;
     };
@@ -77,8 +82,8 @@ private:
     Run* Find(uint64 runId);  // nullptr once the run is over (callbacks capture the id, never a Run*: preflight D3)
     void Step(Run& run, uint32 diff);
     void TickTravel(Run& run);
-    void Handover(Run& run, uint32 diff);  // Task 12
-    void Monitor(Run& run, uint32 diff);   // Task 12
+    void Handover(Run& run, uint32 diff);  // log the five out, start the dungeon-clear run
+    void Monitor(Run& run, uint32 diff);   // until dungeon-clear releases the tank, then read its result line
     void End(Run& run, std::string const& result, std::string const& reason, uint32 bossesKilled, uint32 bossesTotal);
     static void SetStage(Run& run, Stage stage)
     {

@@ -115,7 +115,9 @@ GuildBridge.Dungeon.LevelAbove = 5
 #    GuildBridge.Dungeon.MaxConcurrentRuns
 #        Description: Dungeon runs that may be in progress at the same time (each live run costs world tick
 #                     time). An order beyond it fails with "too many dungeon runs in progress (max <n>)". A bot
-#                     is in at most one run at a time. Keep it at or below mod-dungeon-clear's own run limit.
+#                     is in at most one run at a time. Never above mod-dungeon-clear's own limit
+#                     (DungeonClear.TestRun.MaxConcurrent, 0 = unlimited): a larger value is lowered to it at
+#                     startup (logged).
 #        Default:     3
 
 GuildBridge.Dungeon.MaxConcurrentRuns = 3

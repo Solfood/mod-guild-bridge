@@ -9,6 +9,7 @@
 #include "CharacterCache.h"
 #include "DatabaseEnv.h"
 #include "DcAdapter.h"
+#include "DcRecord.h"
 #include "EventPayloads.h"
 #include "EventSink.h"
 #include "GuildRegistry.h"
@@ -25,6 +26,8 @@
 #include "StringFormat.h"
 #include <algorithm>
 #include <ctime>
+#include <fstream>
+#include <iterator>
 
 using namespace GuildBridge;
 
@@ -38,6 +41,18 @@ uint32 Now() { return static_cast<uint32>(std::time(nullptr)); }
 Player* Connected(uint32 guid)
 {
     return ObjectAccessor::FindConnectedPlayer(ObjectGuid::Create<HighGuid::Player>(guid));
+}
+
+// Off the world thread: the last 4 MB of the results file (a run's line is well under that).
+std::string ReadTail(std::string path)
+{
+    std::ifstream in(path, std::ios::binary | std::ios::ate);
+    if (!in)
+        return "";
+    std::streamoff const size = in.tellg();
+    std::streamoff const from = size > (4 << 20) ? size - (4 << 20) : 0;
+    in.seekg(from);
+    return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
 }
 
 bool NearSpot(Player* bot, Spot const& spot, float radius)
@@ -66,6 +81,16 @@ void DungeonRunMgr::LoadAtStartup()
                 _entrances[target] = Spot{trigger->map, trigger->x, trigger->y, trigger->z};
         } while (result->NextRow());
     _maxRuns = BridgeConfig::Get().runMaxConcurrent;
+    // Never more runs than mod-dungeon-clear itself starts at once (preflight C9); a cap hit is still retried.
+    uint32 const dcCap = DcAdapter::ConcurrentCap();
+    if (dcCap && _maxRuns > dcCap)
+    {
+        LOG_WARN("module.guildbridge", "GuildBridge.Dungeon.MaxConcurrentRuns {} is above mod-dungeon-clear's "
+                 "DungeonClear.TestRun.MaxConcurrent {}: using {}", _maxRuns, dcCap, dcCap);
+        _maxRuns = dcCap;
+    }
+    LOG_INFO("module.guildbridge", "GUILDBRIDGE dungeon runs: at most {} at once (mod-dungeon-clear cap: {})", _maxRuns,
+             dcCap ? std::to_string(dcCap) : std::string("unlimited"));
     LOG_INFO("module.guildbridge", "GUILDBRIDGE {} dungeon entrances known", _entrances.size());
     if (!GuildmasterDatabaseReady)
         return;
@@ -275,7 +300,22 @@ void DungeonRunMgr::Step(Run& run, uint32 diff)
     if (run.stage == Stage::Done)
         return;
     if (run.totalMs > cfg.runOverallTimeoutS * 1000 && run.stage != Stage::ReadResult)
-        return End(run, "abandoned", "no result in time", 0, 0);
+    {
+        if (run.stage != Stage::Monitor)
+            return End(run, "abandoned", "no result in time", 0, 0);
+        // dungeon-clear has the party: ask it to stop (it still revives, sends home, logs out and writes its line),
+        // then read the result as usual. Only if it never lets go are the bots taken back without its line.
+        if (!run.dcStopAsked)
+        {
+            run.dcStopAsked = true;
+            std::string message;
+            DcAdapter::Stop(run.dcRunId, message);
+            LOG_WARN("module.guildbridge", "dungeon run {}: time limit, asked mod-dungeon-clear to stop {}: {}", run.id,
+                     run.dcRunId, message);
+        }
+        else if (run.totalMs > cfg.runOverallTimeoutS * 1000 + 300000)
+            return End(run, "abandoned", "no result in time", 0, 0);
+    }
 
     switch (run.stage)
     {
@@ -421,14 +461,100 @@ void DungeonRunMgr::TickTravel(Run& run)
     }
 }
 
-void DungeonRunMgr::Handover(Run& run, uint32 /*diff*/)
+// At the entrance: log the five out (dungeon-clear only takes offline characters; population members stay held, so
+// the population does not log them back in), then start the run, retrying while dungeon-clear says "not yet".
+void DungeonRunMgr::Handover(Run& run, uint32 diff)
 {
-    End(run, "abandoned", "dungeon handover not available yet", 0, 0);  // replaced in Task 12
+    if (run.stage == Stage::Handover)
+    {
+        for (Member const& m : run.members)
+            PlayerbotsAdapter::Logout(ObjectGuid::Create<HighGuid::Player>(m.guid));
+        SetStage(run, Stage::WaitDc);
+        return;
+    }
+    run.tickMs += diff;
+    if (run.tickMs < 5000)
+        return;
+    run.tickMs = 0;
+    for (Member const& m : run.members)
+        if (Connected(m.guid))
+        {
+            if (run.stageMs > 60000)
+                return End(run, "abandoned", m.name + " did not log out for the handover", 0, 0);
+            return;
+        }
+    if (run.testFail == "dcfail")
+        return End(run, "abandoned", "mod-dungeon-clear refused: test", 0, 0);
+
+    std::string names;
+    for (Member const& m : run.members)
+        names += (names.empty() ? "" : ",") + m.name;
+    std::string message;
+    std::string runId;
+    switch (DcAdapter::Start(run.token, names, run.heroic, message, runId))
+    {
+        case DcAdapter::StartState::Started:
+            run.dcRunId = runId;
+            run.enteredAt = Now();
+            // dungeon-clear ids look like tr-20261005-143000-1; anything else is not written into the SQL text
+            // here (End stores it through a prepared statement).
+            if (runId.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.") ==
+                std::string::npos)
+                GuildmasterDatabase.Execute("UPDATE dungeon_runs SET entered_at = {}, dc_run_id = '{}' WHERE id = {}",
+                                            run.enteredAt, runId, run.id);
+            else
+                GuildmasterDatabase.Execute("UPDATE dungeon_runs SET entered_at = {} WHERE id = {}", run.enteredAt,
+                                            run.id);
+            LOG_INFO("module.guildbridge", "dungeon run {}: handed to mod-dungeon-clear as {}", run.id, runId);
+            SetStage(run, Stage::Monitor);
+            return;
+        case DcAdapter::StartState::Retry:
+            if (run.stageMs > 120000)
+                return End(run, "abandoned", "mod-dungeon-clear refused: " + message, 0, 0);
+            return;
+        case DcAdapter::StartState::Refused:
+            return End(run, "abandoned", "mod-dungeon-clear refused: " + message, 0, 0);
+    }
 }
 
-void DungeonRunMgr::Monitor(Run& run, uint32 /*diff*/)
+// While dungeon-clear holds the tank the run is on. Then: wait for its logouts (so End can log the clones back in),
+// read its result line off the world thread and end the run with it.
+void DungeonRunMgr::Monitor(Run& run, uint32 diff)
 {
-    End(run, "abandoned", "dungeon monitoring not available yet", 0, 0);  // replaced in Task 12
+    run.tickMs += diff;
+    if (run.tickMs < 5000)
+        return;
+    run.tickMs = 0;
+    if (run.stage == Stage::Monitor)
+    {
+        if (DcAdapter::IsReserved(run.members[0].guid))
+            return;  // dungeon-clear still has the party
+        SetStage(run, Stage::ReadResult);
+    }
+    if (run.stageMs < 60000)
+        for (Member const& m : run.members)
+            if (Connected(m.guid))
+                return;  // dungeon-clear's logout still in flight
+    if (!run.fileRead.valid())
+    {
+        run.fileRead = std::async(std::launch::async, ReadTail, DcAdapter::RunsFilePath());
+        return;
+    }
+    if (run.fileRead.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
+        return;
+    DcOutcome const outcome = FindDcRun(run.fileRead.get(), run.dcRunId);
+    if (!outcome.found)
+    {
+        if (++run.readTries < 3)
+            return;  // the line is flushed at teardown; try again in 5 s
+        return End(run, "abandoned", "result missing from dc_testruns.jsonl", 0, 0);
+    }
+    std::string reason = outcome.result == "success" ? "" : outcome.failReason;
+    if (run.dcStopAsked)
+        reason = "no result in time";
+    else if (reason.empty() && outcome.result != "success")
+        reason = outcome.result;
+    End(run, RunResultFromDc(outcome.result), reason, outcome.bossesKilled, outcome.bossesTotal);
 }
 
 // Every outcome ends here: the bots go back to their normal lives, the run row, the run_end event, the order.
