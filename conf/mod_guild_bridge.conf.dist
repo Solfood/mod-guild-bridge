@@ -10,3 +10,28 @@
 #                     0 - (Disabled)
 
 GuildBridge.Enable = 1
+
+#    GuildmasterDatabaseInfo
+#        Description: Connection to THIS world's guildmaster database: "host;port;user;password;database".
+#                     Each world has its own database (spec §2b saves). On the dev server it comes from the
+#                     AC_GUILDMASTER_DATABASE_INFO environment variable (docker-compose.override.yml), so the
+#                     password never sits in this file.
+#        Default:     "127.0.0.1;3306;acore;acore;guildmaster"
+
+GuildmasterDatabaseInfo = "127.0.0.1;3306;acore;acore;guildmaster"
+
+#    GuildmasterDatabase.WorkerThreads / GuildmasterDatabase.SynchThreads
+#        Description: Async writer threads and sync connections for the guildmaster pool. Keep WorkerThreads
+#                     at 1: the bridge relies on its writes being applied in order.
+#        Default:     1 / 1
+
+GuildmasterDatabase.WorkerThreads = 1
+GuildmasterDatabase.SynchThreads = 1
+
+#    GuildBridge.WorldId
+#        Description: This world's id (a-z, 0-9, _ and -, at most 32). Stamped into the guildmaster database at
+#                     the first boot; a later boot with another id refuses to start (one save per world).
+#                     The world controller (Plan 2b) sets it per world (AC_GUILD_BRIDGE_WORLD_ID).
+#        Default:     "w1"
+
+GuildBridge.WorldId = "w1"

@@ -15,6 +15,13 @@ struct BridgeConfig
     void Load();
 
     bool enable = true;
+    std::string worldId;       // GuildBridge.WorldId: this world's id, stamped into world_status
+    std::string charactersDb;  // database names of THIS world, from the core's *DatabaseInfo strings
+    std::string playerbotsDb;
+
+    // "host;port;user;password;database" -> "database" ("" when the string has fewer than 5 fields).
+    static std::string DatabaseNameOf(std::string const& info);
+    static bool IsValidWorldId(std::string const& id);
 };
 
 #endif

@@ -2,6 +2,7 @@
  * This file is part of mod-guild-bridge (Solfood/guildmaster). Released under GNU GPL v2 or later.
  */
 
+#include "BridgeAsync.h"
 #include "BridgeConfig.h"
 #include "Log.h"
 #include "ScriptMgr.h"
@@ -28,6 +29,7 @@ public:
     {
         if (!BridgeConfig::Get().enable)
             return;
+        BridgeAsync::Process();
     }
 
     void OnShutdown() override {}

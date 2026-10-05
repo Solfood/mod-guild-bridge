@@ -5,6 +5,7 @@
 #include "BridgeConfig.h"
 #include "Chat.h"
 #include "CommandScript.h"
+#include "GuildmasterDatabase.h"
 #include "ScriptMgr.h"
 #include <sstream>
 #include <string>
@@ -46,8 +47,9 @@ public:
         std::string const sub = words.empty() ? "status" : words[0];
         if (sub == "status")
         {
-            handler->PSendSysMessage("BRIDGE enabled={} version={}", BridgeConfig::Get().enable ? 1 : 0,
-                                     GUILDBRIDGE_VERSION);
+            handler->PSendSysMessage("BRIDGE enabled={} version={} db={} world={}",
+                                     BridgeConfig::Get().enable ? 1 : 0, GUILDBRIDGE_VERSION,
+                                     GuildmasterDatabaseReady ? 1 : 0, BridgeConfig::Get().worldId);
             return true;
         }
         handler->PSendSysMessage("BRIDGEERR unknown sub-command {}", sub);
