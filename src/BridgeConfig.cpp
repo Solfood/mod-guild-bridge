@@ -22,6 +22,9 @@ void BridgeConfig::Load()
     playerbotsDb = DatabaseNameOf(sConfigMgr->GetOption<std::string>("PlayerbotsDatabaseInfo", ""));
     testAccount = sConfigMgr->GetOption<std::string>("GuildBridge.TestAccount", "GMTEST");
     snapshotKeepDays = sConfigMgr->GetOption<uint32>("GuildBridge.Snapshot.KeepDays", 14);
+    eventFlushMs = std::max<uint32>(100, sConfigMgr->GetOption<uint32>("GuildBridge.Events.FlushMs", 1000));
+    eventQueueCap = sConfigMgr->GetOption<uint32>("GuildBridge.Events.QueueCap", 10000);
+    firstsLevelStep = sConfigMgr->GetOption<uint32>("GuildBridge.Firsts.LevelStep", 10);
 }
 
 std::string BridgeConfig::DatabaseNameOf(std::string const& info)

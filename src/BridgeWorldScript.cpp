@@ -5,6 +5,8 @@
 #include "BotDumps.h"
 #include "BridgeAsync.h"
 #include "BridgeConfig.h"
+#include "EventSink.h"
+#include "Firsts.h"
 #include "GuildRegistry.h"
 #include "Log.h"
 #include "ScriptMgr.h"
@@ -28,6 +30,7 @@ public:
         if (!BridgeConfig::Get().enable)
             return;
         GuildRegistry::Instance().LoadAtStartup();  // first: everything after it may ask for guild roles
+        Firsts::Instance().LoadAtStartup();
         BotDumps::Instance().Start();
     }
 
@@ -38,9 +41,23 @@ public:
         BridgeAsync::Process();
         BotDumps::Instance().Update(diff);
         GuildRegistry::Instance().Update(diff);
+        _flushInMs = _flushInMs > diff ? _flushInMs - diff : 0;
+        if (!_flushInMs)
+        {
+            EventSink::Instance().Flush();
+            _flushInMs = BridgeConfig::Get().eventFlushMs;
+        }
     }
 
-    void OnShutdown() override { BotDumps::Instance().Stop(); }
+    void OnShutdown() override
+    {
+        if (BridgeConfig::Get().enable)
+            EventSink::Instance().Flush();  // the last events in
+        BotDumps::Instance().Stop();
+    }
+
+private:
+    uint32 _flushInMs = 0;
 };
 
 void AddBridgeWorldScripts() { new BridgeWorldScript(); }

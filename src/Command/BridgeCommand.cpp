@@ -8,7 +8,10 @@
 #include "CharacterCache.h"
 #include "Chat.h"
 #include "CommandScript.h"
+#include "Creature.h"
 #include "DatabaseEnv.h"
+#include "EventPayloads.h"
+#include "EventSink.h"
 #include "Guild.h"
 #include "GuildMgr.h"
 #include "GuildRegistry.h"
@@ -21,6 +24,8 @@
 #include "QueryCallback.h"
 #include "ScriptMgr.h"
 #include "StringFormat.h"
+#include "TemporarySummon.h"
+#include <cstdlib>
 #include <functional>
 #include <sstream>
 #include <string>
@@ -107,13 +112,17 @@ public:
         std::string const sub = words.empty() ? "status" : words[0];
         if (sub == "status")
         {
-            handler->PSendSysMessage("BRIDGE enabled={} version={} db={} world={} snapshots={} snapfail={}",
+            EventSink const& events = EventSink::Instance();
+            handler->PSendSysMessage("BRIDGE enabled={} version={} db={} world={} snapshots={} snapfail={} events={} "
+                                     "dropped={} queued={} flushus={}",
                                      BridgeConfig::Get().enable ? 1 : 0, GUILDBRIDGE_VERSION,
                                      GuildmasterDatabaseReady ? 1 : 0, BridgeConfig::Get().worldId,
-                                     BotDumps::Instance().Taken(), BotDumps::Instance().Failed());
+                                     BotDumps::Instance().Taken(), BotDumps::Instance().Failed(), events.Written(),
+                                     events.Dropped(), events.Queued(), events.LastFlushUs());
             return true;
         }
-        if ((sub == "snapshot" || sub == "clone" || sub == "testbots" || sub == "guild" || sub == "bot") &&
+        if ((sub == "snapshot" || sub == "clone" || sub == "testbots" || sub == "guild" || sub == "bot" ||
+             sub == "event" || sub == "test") &&
             !BridgeConfig::Get().enable)
         {
             handler->PSendSysMessage("BRIDGEERR the bridge is disabled (GuildBridge.Enable = 0)");
@@ -233,6 +242,59 @@ public:
                                      PlayerbotsAdapter::IsRandomBot(guid.GetCounter()) ? 1 : 0,
                                      PlayerbotsAdapter::IsHeld(guid.GetCounter()) ? 1 : 0, cache->GuildId,
                                      GuildRegistry::RoleName(GuildRegistry::Instance().RoleOf(cache->GuildId)));
+            return true;
+        }
+        if (sub == "event" && words.size() > 2 && words[1] == "fake")
+        {
+            std::string name = words[2];
+            normalizePlayerName(name);
+            ObjectGuid const guid = sCharacterCache->GetCharacterGuidByName(name);
+            CharacterCacheEntry const* cache = guid ? sCharacterCache->GetCharacterCacheByGuid(guid) : nullptr;
+            if (!cache)
+            {
+                handler->PSendSysMessage("BRIDGEERR no character named {}", name);
+                return false;
+            }
+            EventSink::Instance().Push(GuildBridge::EventType::Fake, guid.GetCounter(), cache->GuildId, 0,
+                                       GuildBridge::FakePayload(words.size() > 3 ? words[3] : "test"));
+            handler->PSendSysMessage("BRIDGEOK fake event queued");
+            return true;
+        }
+        if (sub == "event" && words.size() > 2 && words[1] == "burst")
+        {
+            uint32 const n = static_cast<uint32>(std::strtoul(words[2].c_str(), nullptr, 10));
+            for (uint32 i = 0; i < n; ++i)
+                EventSink::Instance().Push(GuildBridge::EventType::Fake, 0, 0, 0, GuildBridge::FakePayload("burst"));
+            handler->PSendSysMessage("BRIDGEOK burst {}", n);
+            return true;
+        }
+        if (sub == "test" && words.size() > 3 && words[1] == "killby")
+        {
+            std::string name = words[2];
+            normalizePlayerName(name);
+            Player* bot = ObjectAccessor::FindPlayerByName(name, true);
+            if (!bot || !bot->GetSession() ||
+                !GuildRegistry::Instance().IsTestAccount(bot->GetSession()->GetAccountId()))
+            {
+                handler->PSendSysMessage("BRIDGEERR killby works only on online test-account characters");
+                return false;
+            }
+            if (!bot->IsAlive())
+            {
+                handler->PSendSysMessage("BRIDGEERR {} is already dead", name);
+                return false;
+            }
+            uint32 const entry = static_cast<uint32>(std::strtoul(words[3].c_str(), nullptr, 10));
+            Creature* killer = bot->SummonCreature(entry, bot->GetPositionX() + 2.f, bot->GetPositionY(),
+                                                   bot->GetPositionZ(), 0.f, TEMPSUMMON_TIMED_DESPAWN, 30000);
+            if (!killer)
+            {
+                handler->PSendSysMessage("BRIDGEERR could not summon creature {}", entry);
+                return false;
+            }
+            Unit::DealDamage(killer, bot, bot->GetHealth(), nullptr, DIRECT_DAMAGE, SPELL_SCHOOL_MASK_NORMAL, nullptr,
+                             false, true);
+            handler->PSendSysMessage("BRIDGEOK {} killed by {}", name, entry);
             return true;
         }
         handler->PSendSysMessage("BRIDGEERR unknown sub-command {}", sub);

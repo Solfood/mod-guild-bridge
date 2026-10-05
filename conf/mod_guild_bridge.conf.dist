@@ -50,3 +50,24 @@ GuildBridge.TestAccount = "GMTEST"
 #        Default:     14
 
 GuildBridge.Snapshot.KeepDays = 14
+
+#    GuildBridge.Events.FlushMs
+#        Description: Game hooks queue events in memory; every this many milliseconds the world thread hands the
+#                     queue to the guildmaster pool's writer thread as one transaction. At least 100.
+#        Default:     1000
+
+GuildBridge.Events.FlushMs = 1000
+
+#    GuildBridge.Events.QueueCap
+#        Description: At most this many events wait for the next flush. Events beyond it are not queued; they
+#                     are counted as dropped (`.bridge status` dropped=), so a flood can't grow memory without limit.
+#        Default:     10000
+
+GuildBridge.Events.QueueCap = 10000
+
+#    GuildBridge.Firsts.LevelStep
+#        Description: Server firsts for levels are claimed at every multiple of this level (10, 20, ... 80).
+#                     Test-guild and test-account characters never claim firsts. 0 turns level firsts off.
+#        Default:     10
+
+GuildBridge.Firsts.LevelStep = 10
