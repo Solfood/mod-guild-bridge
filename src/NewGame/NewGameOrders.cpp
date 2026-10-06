@@ -81,9 +81,9 @@ std::unordered_map<uint32, uint32> founderProfiles;
 // records only while its set is empty, so nothing may be added before that).
 std::vector<uint32> toAdd;
 uint32 addWaitMs = 0;
-// create_founders orders still running when the server went down (read before the order runner fails them):
-// order id -> the founder names it was making. Only their founders are settled at boot (re-review N1).
-std::unordered_map<uint64, std::vector<std::string>> cutOrders;
+// create_founders orders still running when the server went down (read before the order runner fails them). Only
+// the founders they journaled in bot_profiles are settled at boot (re-reviews N1).
+std::unordered_set<uint64> cutOrders;
 
 uint32 Now() { return static_cast<uint32>(std::time(nullptr)); }
 
@@ -317,17 +317,10 @@ void NewGameOrders::NoteCutOrders()
         return;
     // Startup only (sync), before OrderRunner::RecoverAtStartup fails them as interrupted.
     if (QueryResult result = GuildmasterDatabase.Query(
-            "SELECT id, IFNULL(CAST(JSON_EXTRACT(params, '$.founders[*].name') AS CHAR), '[]') FROM orders "
-            "WHERE status = 'running' AND type = 'create_founders'"))
+            "SELECT id FROM orders WHERE status = 'running' AND type = 'create_founders'"))
         do
-        {
-            std::vector<std::string> raw, names;
-            ParseStringArray((*result)[1].Get<std::string>(), raw);
-            for (std::string const& name : raw)
-                if (std::string const normal = NormalizeName(name); !normal.empty())
-                    names.push_back(normal);
-            cutOrders[(*result)[0].Get<uint64>()] = std::move(names);
-        } while (result->NextRow());
+            cutOrders.insert((*result)[0].Get<uint64>());
+        while (result->NextRow());
 }
 
 void NewGameOrders::LoadAtStartup()
@@ -339,10 +332,11 @@ void NewGameOrders::LoadAtStartup()
     if (!GuildmasterDatabaseReady)
         return;
     // Startup only (sync), after restore recovery has queued its jobs (RestoreMgr::RecoverAtStartup). Founder
-    // profiles, the characters on this world's founder accounts, their "add" records and raisings: the founders of a
-    // create_founders order the boot found running are finished or cleaned up (final review I1); everything else that
-    // looks unfinished (a raised founder, a restore, a raising's new death knight, a late save) only gets a warning
-    // (re-review N1, SettleFounderAtBoot). The fork's "no_bot_guild" value says which finished founders still wait
+    // profiles, the characters on this world's founder accounts, their "add" records and raisings: the founders a
+    // create_founders order the boot found running journaled in bot_profiles are finished, or their profile dropped
+    // if the character never saved (final review I1); everything else that looks unfinished (a raised founder, a
+    // restore, a raising's new death knight, a late save, a character cut before its profile) only gets a warning.
+    // No character is ever deleted here (re-reviews N1, SettleFounderAtBoot). The fork's "no_bot_guild" value says which finished founders still wait
     // for their guild; a founder placed and later removed by the player is not put back.
     struct Profile
     {
@@ -381,9 +375,6 @@ void NewGameOrders::LoadAtStartup()
         guids.push_back(c.guid);
     std::unordered_set<uint32> const added = PlayerbotsAdapter::WithPopulationRecord(guids);
     std::unordered_set<uint32> const raised = PlayerbotsAdapter::InRaisings(guids);
-    std::unordered_set<std::string> cutNames;
-    for (auto const& [orderId, names] : cutOrders)
-        cutNames.insert(names.begin(), names.end());
     auto facts = [&](uint32 guid, bool hasProfile, bool exists, bool fromCut) {
         FounderBootFacts f;
         f.hasProfile = hasProfile;
@@ -437,21 +428,11 @@ void NewGameOrders::LoadAtStartup()
     {
         if (std::any_of(profiles.begin(), profiles.end(), [&c](Profile const& p) { return p.guid == c.guid; }))
             continue;
-        FounderBootAction const action = SettleFounderAtBoot(facts(c.guid, false, true, cutNames.count(c.name) != 0));
-        if (action == FounderBootAction::DeleteCharacter)
-        {
-            // Made by a cut create_founders order a moment before the restart, before its profile was written.
-            // Delete it (and the playerbots values a guid reuse would inherit), so its name and its account slot are
-            // free for the order sent again. DeleteFromDB makes a few sync reads (startup only, D7).
-            PlayerbotsAdapter::PresetProfessions(c.guid, 0, 0);
-            PlayerbotsAdapter::SetJoinsBotGuild(c.guid, true);
-            Player::DeleteFromDB(c.guid, c.account, false, true);
-            LOG_WARN("module.guildbridge", "GUILDBRIDGE founder account character {} (guid {}) of a cut create_founders "
-                     "order had no founder profile and was never added to the population: deleted", c.name, c.guid);
-        }
-        else if (action != FounderBootAction::Keep && !added.count(c.guid))
+        // Never deleted (re-review 2): a character without a profile may be a restored founder under a new guid or a
+        // founder cut before its profile was written; the order sent again takes the latter back by name.
+        if (!added.count(c.guid))
             LOG_WARN("module.guildbridge", "GUILDBRIDGE founder account character {} (guid {}) has no founder profile "
-                     "and no add record; not from a cut create_founders order, so it is left as it is", c.name, c.guid);
+                     "and no add record; left as it is (send create_founders again to take it back)", c.name, c.guid);
     }
     if (!unplaced.empty())
         LOG_INFO("module.guildbridge", "GUILDBRIDGE {} founder(s) still to be placed in their guild", unplaced.size());

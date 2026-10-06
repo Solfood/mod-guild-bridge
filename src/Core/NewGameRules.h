@@ -260,18 +260,18 @@ inline bool PickFounderAccounts(std::vector<std::pair<uint32_t, uint32_t>> const
     return true;
 }
 
-// Founders cut short (final review I1, narrowed by re-review N1). create_founders writes each founder's bot_profiles
+// Founders cut short (final review I1, narrowed by re-reviews N1). create_founders writes each founder's bot_profiles
 // row right after making its character, and adds it to the population (the "add" record) once the character is in
-// the database. A restart can stop it in between. At the next boot only the founders of a create_founders order that
-// was still running (the boot fails it as interrupted) are settled; nothing else is ever deleted or dropped.
+// the database. A restart can stop it in between. At the next boot only the founders a create_founders order that
+// was still running (the boot fails it as interrupted) journaled in bot_profiles are settled. No character is ever
+// deleted: one without a profile (cut before its profile was written) only gets a warning, and the order sent again
+// takes it back by name.
 enum class FounderBootAction : uint8_t
 {
     Keep,             // finished (profile + "add" record): placed as usual if it still waits for its guild
     Leave,            // looks unfinished but is not a cut order's own founder (raised, restored, ...): a warning only
     Adopt,            // profile, character, no "add" record: add it to the population; it joins its guild at login
     DropProfile,      // profile but the character never reached the database: forget the profile
-    DeleteCharacter,  // a cut order's character with neither profile nor "add" record (made a moment before the
-                      // restart): deleted, so its name and account slot are free for the order sent again
 };
 
 struct FounderBootFacts
@@ -279,7 +279,7 @@ struct FounderBootFacts
     bool hasProfile = false;
     bool characterExists = false;
     bool hasAddRecord = false;
-    bool fromCutOrder = false;  // profiled by, or named in, a create_founders order the boot fails as interrupted
+    bool fromCutOrder = false;  // its profile's order_id is a create_founders order the boot fails as interrupted
     bool raising = false;       // has a playerbots_raisings row (old or new guid), finished or not
     bool restoring = false;     // in the restore recovery the boot queued
 };
@@ -289,13 +289,11 @@ inline FounderBootAction SettleFounderAtBoot(FounderBootFacts const& f)
     bool const finished = f.hasProfile && f.characterExists && f.hasAddRecord;
     if (finished)
         return FounderBootAction::Keep;
-    if (!f.fromCutOrder || f.raising || f.restoring)
-        return FounderBootAction::Leave;
+    if (!f.hasProfile || !f.fromCutOrder || f.raising || f.restoring)
+        return FounderBootAction::Leave;  // no journal of a cut order: a warning only, never a delete or drop
     if (!f.characterExists)
         return FounderBootAction::DropProfile;
-    if (f.hasAddRecord)
-        return FounderBootAction::Leave;  // a population bot without a profile: never touched
-    return f.hasProfile ? FounderBootAction::Adopt : FounderBootAction::DeleteCharacter;
+    return f.hasAddRecord ? FounderBootAction::Keep : FounderBootAction::Adopt;
 }
 
 // A character that already has a founder's name (from the character cache and the bot_profiles rows).

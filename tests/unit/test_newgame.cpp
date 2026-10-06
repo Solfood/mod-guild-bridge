@@ -157,8 +157,10 @@ int main()
     CHECK_TRUE(settle(true, true, true, true) == FounderBootAction::Keep);
     CHECK_TRUE(settle(true, true, false, true) == FounderBootAction::Adopt);         // cut order: made, never added
     CHECK_TRUE(settle(true, false, false, true) == FounderBootAction::DropProfile);  // cut order: never saved
-    CHECK_TRUE(settle(false, true, false, true) == FounderBootAction::DeleteCharacter);  // cut before its profile
-    CHECK_TRUE(settle(false, true, true, true) == FounderBootAction::Leave);  // a population bot: never deleted
+    // Re-review 2: a character with no profile is never deleted, even when a cut order names it (it may be a restored
+    // founder under a new guid that a resend took back, or a same-named character the order never journaled).
+    CHECK_TRUE(settle(false, true, false, true) == FounderBootAction::Leave);
+    CHECK_TRUE(settle(false, true, true, true) == FounderBootAction::Leave);
     // Re-review N1, the five states that must never be deleted, dropped or adopted:
     // (a) a raised founder: its profile stays on the retired guid (legend), unlinked or gone from the cache.
     CHECK_TRUE(settle(true, false, false, false, true) == FounderBootAction::Leave);
