@@ -53,7 +53,7 @@ struct RowWait
 };
 
 // A founder made but not in its guild yet: placed as soon as it has logged in.
-struct Unplaced
+struct WaitingFounder
 {
     uint32 guid = 0;
     uint32 guildId = 0;
@@ -70,7 +70,7 @@ struct FounderOrder
 };
 
 std::vector<std::shared_ptr<RowWait>> waits;
-std::vector<Unplaced> unplaced;
+std::vector<WaitingFounder> unplaced;
 std::vector<FounderOrder> founderOrders;
 uint32 placeTimerMs = 0;
 
@@ -109,12 +109,12 @@ std::string JoinNames(std::vector<std::string> const& names)
 
 bool IsPlaced(uint32 guid)
 {
-    return std::none_of(unplaced.begin(), unplaced.end(), [guid](Unplaced const& u) { return u.guid == guid; });
+    return std::none_of(unplaced.begin(), unplaced.end(), [guid](WaitingFounder const& u) { return u.guid == guid; });
 }
 
 // One founder that has logged in (and finished playerbots' login steps) joins its guild; true when it is settled
 // (placed, or dropped because its guild is gone).
-bool TryPlace(Unplaced const& founder)
+bool TryPlace(WaitingFounder const& founder)
 {
     Guild* guild = GuildRegistry::Instance().RoleOf(founder.guildId) != GuildRole::None
                        ? sGuildMgr->GetGuildById(founder.guildId)
@@ -204,9 +204,9 @@ void UpdatePlacements(uint32 diff)
     placeTimerMs = 0;
     if (!unplaced.empty())
     {
-        std::vector<Unplaced> const current = unplaced;
+        std::vector<WaitingFounder> const current = unplaced;
         unplaced.clear();
-        for (Unplaced const& founder : current)
+        for (WaitingFounder const& founder : current)
             if (!TryPlace(founder))
                 unplaced.push_back(founder);
     }
@@ -251,7 +251,7 @@ void NewGameOrders::LoadAtStartup()
             GuildmasterDatabase.Query("SELECT guid, guild_id FROM bot_profiles WHERE origin = 'founder'"))
         do
         {
-            Unplaced founder{(*result)[0].Get<uint32>(), (*result)[1].Get<uint32>()};
+            WaitingFounder founder{(*result)[0].Get<uint32>(), (*result)[1].Get<uint32>()};
             ObjectGuid const guid = ObjectGuid::Create<HighGuid::Player>(founder.guid);
             CharacterCacheEntry const* cache = sCharacterCache->GetCharacterCacheByGuid(guid);
             if (cache && !cache->GuildId && !PlayerbotsAdapter::JoinsBotGuild(founder.guid))

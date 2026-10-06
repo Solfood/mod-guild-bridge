@@ -6,6 +6,7 @@
 #define MOD_GUILD_BRIDGE_NEWGAMEORDERS_H
 
 #include "OrderRunner.h"
+#include <cstddef>
 #include <functional>
 
 // create_guild and create_founders (spec §2b), sent by the world controller at New Game. World thread.
