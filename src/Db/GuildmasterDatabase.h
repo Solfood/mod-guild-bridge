@@ -13,8 +13,7 @@
 #include <memory>
 
 // Prepared statements for every write that carries text (names, JSON, dumps): no hand-escaping anywhere.
-// Numeric-only updates use plain Execute("...{}...") strings. Later tasks append ids here (before MAX_):
-// Task 15 GM_UPD_WORLD_STATUS and GM_REP_PROFILE.
+// Numeric-only updates use plain Execute("...{}...") strings. Later tasks append ids here (before MAX_).
 enum GuildmasterStatements : uint32
 {
     GM_INS_EVENT,
@@ -28,6 +27,8 @@ enum GuildmasterStatements : uint32
     GM_UPD_RUN_END,
     GM_INS_INCIDENT,
     GM_UPS_BOT_OFFLINE,
+    GM_UPD_WORLD_STATUS,
+    GM_REP_PROFILE,
     MAX_GUILDMASTER_STATEMENTS
 };
 

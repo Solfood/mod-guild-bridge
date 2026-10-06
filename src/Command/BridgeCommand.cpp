@@ -19,6 +19,7 @@
 #include "GuildRegistry.h"
 #include "GuildmasterDatabase.h"
 #include "Log.h"
+#include "NewGameOrders.h"
 #include "OrderRunner.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
@@ -33,11 +34,16 @@
 #include "StringFormat.h"
 #include "StuckDetector.h"
 #include "TemporarySummon.h"
+#include "WorldStatus.h"
 #include <cstdlib>
 #include <functional>
 #include <sstream>
 #include <string>
 #include <vector>
+
+#ifndef GUILDBRIDGE_VERSION
+#define GUILDBRIDGE_VERSION "dev"
+#endif
 
 using namespace Acore::ChatCommands;
 
@@ -125,7 +131,8 @@ public:
             handler->PSendSysMessage("BRIDGE enabled={} version={} db={} world={} snapshots={} snapfail={} events={} "
                                      "dropped={} queued={} flushus={} flushmaxus={} orders={} snapq={} stateus={} "
                                      "statemaxus={} staterows={} restores={} runs={} runbots={} incidents_open={} "
-                                     "stuckbots={} stuckscanus={} stuckscanticks={} stuckstepmaxus={}",
+                                     "stuckbots={} stuckscanus={} stuckscanticks={} stuckstepmaxus={} pop={}/{} "
+                                     "ready={} unplaced={}",
                                      BridgeConfig::Get().enable ? 1 : 0, GUILDBRIDGE_VERSION,
                                      GuildmasterDatabaseReady ? 1 : 0, BridgeConfig::Get().worldId,
                                      BotDumps::Instance().Taken(), BotDumps::Instance().Failed(), events.Written(),
@@ -135,7 +142,9 @@ public:
                                      StateWriter::Instance().MaxBuildUs(), StateWriter::Instance().LastRows(),
                                      RestoreMgr::Instance().Queued(), DungeonRunMgr::Instance().Running(),
                                      RunRegistry::Instance().Bots(), stuck.OpenCount(), stuck.LastScanBots(),
-                                     stuck.LastScanUs(), stuck.LastScanTicks(), stuck.MaxStepUs());
+                                     stuck.LastScanUs(), stuck.LastScanTicks(), stuck.MaxStepUs(),
+                                     WorldStatus::Instance().Online(), WorldStatus::Instance().Size(),
+                                     WorldStatus::Instance().Ready() ? 1 : 0, NewGameOrders::Unplaced());
             return true;
         }
         if ((sub == "snapshot" || sub == "clone" || sub == "testbots" || sub == "guild" || sub == "bot" ||
@@ -297,6 +306,25 @@ public:
                 return false;
             }
             handler->PSendSysMessage("BRIDGEOK creating {}", name);
+            return true;
+        }
+        if (sub == "guild" && words.size() > 2 && words[1] == "disband")
+        {
+            // Test seam (refounding the test guild through create_guild). The user guild is never disbanded here.
+            if (words[2] != "test")
+            {
+                handler->PSendSysMessage("BRIDGEERR only the test guild can be disbanded from the console");
+                return false;
+            }
+            uint32 const id = GuildRegistry::Instance().GuildIdFor(GuildRole::Test);
+            if (Guild* guild = id ? sGuildMgr->GetGuildById(id) : nullptr)
+            {
+                guild->Disband();  // removes it from the guild manager; the object is ours to delete (as .guild delete)
+                delete guild;
+            }
+            GuildRegistry::Instance().Unregister(GuildRole::Test);
+            PlayerbotsAdapter::ValidateGuildCache();
+            handler->PSendSysMessage("BRIDGEOK disbanded test");
             return true;
         }
         if (sub == "guild" && words.size() > 2 && words[1] == "show")

@@ -80,6 +80,28 @@ void PlayerbotsAdapter::Release(uint32 guid) { sRandomPlayerbotMgr.Release(guid)
 
 bool PlayerbotsAdapter::IsRaising(uint32 guid) { return sRaisingMgr.IsRaising(guid); }
 
+void PlayerbotsAdapter::AddPopulationAccount(uint32 accountId) { sRandomPlayerbotMgr.AddPopulationAccount(accountId); }
+
+void PlayerbotsAdapter::AddToPopulation(uint32 guid, bool joinsBotGuild)
+{
+    sRandomPlayerbotMgr.AddToPopulation(guid, joinsBotGuild);
+}
+
+void PlayerbotsAdapter::SetJoinsBotGuild(uint32 guid, bool joins) { sRandomPlayerbotMgr.SetJoinsBotGuild(guid, joins); }
+
+bool PlayerbotsAdapter::JoinsBotGuild(uint32 guid) { return sRandomPlayerbotMgr.JoinsBotGuild(guid); }
+
+uint32 PlayerbotsAdapter::PopulationSize() { return sRandomPlayerbotMgr.PopulationSize(); }
+
+uint32 PlayerbotsAdapter::PopulationOnline()
+{
+    uint32 online = 0;
+    for (auto const& [guid, bot] : sRandomPlayerbotMgr.GetAllBots())
+        if (bot && GET_PLAYERBOT_AI(bot) && sRandomPlayerbotMgr.IsRandomBot(bot))
+            ++online;
+    return online;
+}
+
 // The user's guild is created at New Game, so its id cannot sit in playerbots.conf
 // (AiPlayerbot.Raisings.UserGuildId stays 0 there); the bridge sets the live value from the registry.
 void PlayerbotsAdapter::SetRaisingsUserGuild(uint32 guildId) { sPlayerbotAIConfig.raisingsUserGuildId = guildId; }

@@ -21,6 +21,10 @@ void BridgeConfig::Load()
     charactersDb = DatabaseNameOf(sConfigMgr->GetOption<std::string>("CharacterDatabaseInfo", ""));
     playerbotsDb = DatabaseNameOf(sConfigMgr->GetOption<std::string>("PlayerbotsDatabaseInfo", ""));
     testAccount = sConfigMgr->GetOption<std::string>("GuildBridge.TestAccount", "GMTEST");
+    leaderAccount = sConfigMgr->GetOption<std::string>("GuildBridge.LeaderAccount", "GMGUILD");
+    founderAccounts = AccountList(sConfigMgr->GetOption<std::string>("GuildBridge.FounderAccounts", ""));
+    populationReadyShare =
+        std::min<uint32>(100, sConfigMgr->GetOption<uint32>("GuildBridge.Population.ReadyShare", 95));
     snapshotKeepDays = sConfigMgr->GetOption<uint32>("GuildBridge.Snapshot.KeepDays", 14);
     snapshotPerTick = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("GuildBridge.Snapshot.PerTick", 1));
     eventFlushMs = std::max<uint32>(100, sConfigMgr->GetOption<uint32>("GuildBridge.Events.FlushMs", 1000));
@@ -63,4 +67,22 @@ bool BridgeConfig::IsValidWorldId(std::string const& id)
     return !id.empty() && id.size() <= 32 && std::all_of(id.begin(), id.end(), [](unsigned char c) {
         return std::islower(c) || std::isdigit(c) || c == '_' || c == '-';
     });
+}
+
+std::vector<std::string> BridgeConfig::AccountList(std::string const& text)
+{
+    std::vector<std::string> out;
+    std::string name;
+    for (std::size_t i = 0; i <= text.size(); ++i)
+    {
+        if (i == text.size() || text[i] == ',')
+        {
+            if (!name.empty() && std::find(out.begin(), out.end(), name) == out.end())
+                out.push_back(name);
+            name.clear();
+        }
+        else if (!std::isspace(static_cast<unsigned char>(text[i])))
+            name += static_cast<char>(std::toupper(static_cast<unsigned char>(text[i])));
+    }
+    return out;
 }

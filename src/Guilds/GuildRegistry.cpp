@@ -7,6 +7,7 @@
 #include "AccountMgr.h"
 #include "BridgeConfig.h"
 #include "CharacterCache.h"
+#include "DatabaseEnv.h"
 #include "Guild.h"
 #include "GuildMgr.h"
 #include "GuildmasterDatabase.h"
@@ -15,10 +16,31 @@
 #include "ObjectMgr.h"
 #include "Player.h"
 #include "PlayerbotsAdapter.h"
+#include "Random.h"
+#include <chrono>
 #include <ctime>
+#include <thread>
 
 namespace
 {
+// Startup only (sync is allowed there): the account's id, created first when it is missing. The core writes a new
+// account asynchronously, so wait (at most 10 s) for the login database's queue before reading the id back.
+uint32 EnsureAccount(std::string const& name)
+{
+    if (uint32 const id = AccountMgr::GetId(name))
+        return id;
+    static constexpr char HEX[] = "0123456789abcdef";
+    std::string password;
+    for (int i = 0; i < 16; ++i)
+        password += HEX[urand(0, 15)];  // thrown away: nobody logs in with it
+    AccountOpResult const result = sAccountMgr->CreateAccount(name, password);
+    for (int waited = 0; result == AOR_OK && LoginDatabase.QueueSize() && waited < 100; ++waited)
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    uint32 const id = AccountMgr::GetId(name);
+    LOG_INFO("module.guildbridge", "GUILDBRIDGE account {} {}", name, id ? "created" : "could not be created");
+    return id;
+}
+
 constexpr uint32 LeaderLoginTimeoutMs = 60000;
 constexpr uint32 RevalidateDelayMs = 5000;
 constexpr std::size_t MaxGuildNameLength = 24;  // guilds.name VARCHAR(24), the core's limit too
@@ -32,7 +54,27 @@ GuildRegistry& GuildRegistry::Instance()
 
 void GuildRegistry::LoadAtStartup()
 {
-    _testAccount = AccountMgr::GetId(BridgeConfig::Get().testAccount);
+    BridgeConfig const& config = BridgeConfig::Get();
+    _testAccount = AccountMgr::GetId(config.testAccount);
+    // The user guild's leader account: a normal account, made once per world, never logged into.
+    EnsureAccount(config.leaderAccount);
+    // This world's founder accounts (preflight C1): outside the bot factory's prefix, so it never fills them; added
+    // to the population's accounts before the population manager's first turn, so founders are population bots.
+    _founderAccounts.clear();
+    for (std::string const& name : config.founderAccounts)
+    {
+        if (PlayerbotsAdapter::IsBotAccountName(name) || name == config.testAccount || name == config.leaderAccount)
+        {
+            LOG_ERROR("module.guildbridge", "GUILDBRIDGE founder account {} skipped: it is a bot factory, test or "
+                      "leader account", name);
+            continue;
+        }
+        if (uint32 const id = EnsureAccount(name))
+        {
+            PlayerbotsAdapter::AddPopulationAccount(id);
+            _founderAccounts.push_back(id);
+        }
+    }
     if (GuildmasterDatabaseReady)
     {
         if (QueryResult result = GuildmasterDatabase.Query("SELECT guild_id, role FROM guilds"))
@@ -58,8 +100,8 @@ void GuildRegistry::LoadAtStartup()
     }
     if (_user.load())
         PlayerbotsAdapter::SetRaisingsUserGuild(_user.load());
-    LOG_INFO("module.guildbridge", "GUILDBRIDGE guilds user={} test={} testAccount={}", _user.load(), _test.load(),
-             _testAccount.load());
+    LOG_INFO("module.guildbridge", "GUILDBRIDGE guilds user={} test={} testAccount={} founderAccounts={}",
+             _user.load(), _test.load(), _testAccount.load(), _founderAccounts.size());
 }
 
 GuildRole GuildRegistry::RoleOf(uint32 guildId) const
@@ -85,6 +127,21 @@ bool GuildRegistry::IsRegisteredLeader(ObjectGuid guid) const
             if (guild->GetLeaderGUID() == guid)
                 return true;
     return _pending && _pending->leader == guid;
+}
+
+std::string const& GuildRegistry::LeaderAccountName(GuildRole role) const
+{
+    return role == GuildRole::Test ? BridgeConfig::Get().testAccount : BridgeConfig::Get().leaderAccount;
+}
+
+void GuildRegistry::Unregister(GuildRole role)
+{
+    if (role == GuildRole::None)
+        return;
+    (role == GuildRole::User ? _user : _test) = 0;
+    if (role == GuildRole::User)
+        PlayerbotsAdapter::SetRaisingsUserGuild(0);
+    GuildmasterDatabase.Execute("DELETE FROM guilds WHERE role = '{}'", RoleName(role));
 }
 
 char const* GuildRegistry::RoleName(GuildRole role)

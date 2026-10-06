@@ -9,6 +9,7 @@
 #include "DungeonRunMgr.h"
 #include "GuildmasterDatabase.h"
 #include "Log.h"
+#include "NewGameOrders.h"
 #include "QueryCallback.h"
 #include "RestoreMgr.h"
 #include "SimpleOrders.h"
@@ -48,7 +49,12 @@ OrderRunner& OrderRunner::Instance()
 void OrderRunner::RecoverAtStartup()
 {
     GuildmasterDatabase.DirectExecute(Acore::StringFormat(
-        "UPDATE orders SET status = 'failed', result = 'interrupted by a server restart', done_at = {} "
+        "UPDATE orders SET status = 'failed', done_at = {}, result = CASE type "
+        "WHEN 'create_guild' THEN 'interrupted by a server restart: send create_guild again (a leader it already "
+        "made is used again)' "
+        "WHEN 'create_founders' THEN 'interrupted by a server restart: founders already made still join the guild "
+        "when they log in (bot_profiles has them)' "
+        "ELSE 'interrupted by a server restart' END "
         "WHERE status = 'running' AND type NOT IN ('restore')",
         static_cast<uint32>(std::time(nullptr))));
     // Restores are recovered by RestoreMgr::RecoverAtStartup (called just before this), which may have to put a
@@ -90,7 +96,11 @@ void OrderRunner::Poll()
         "IFNULL(params->>'$.party[2]',''), IFNULL(params->>'$.party[3]',''), IFNULL(params->>'$.party[4]',''), "
         "IFNULL(CAST(JSON_LENGTH(params->'$.party') AS CHAR),''), IFNULL(params->>'$.heroic',''), "
         "IFNULL(params->>'$.approach',''), IFNULL(params->>'$.snapshot_id',''), IFNULL(params->>'$.taken_before',''), "
-        "IFNULL(params->>'$.dry_run',''), IFNULL(params->>'$.test_fail','') "
+        "IFNULL(params->>'$.dry_run',''), IFNULL(params->>'$.test_fail',''), "
+        "IFNULL(params->>'$.faction',''), IFNULL(params->>'$.guild_name',''), IFNULL(params->>'$.leader_name',''), "
+        "IFNULL(params->>'$.role',''), IFNULL(params->>'$.leader_race',''), IFNULL(params->>'$.guild_id',''), "
+        "CASE WHEN params->'$.founders' IS NULL THEN '' WHEN JSON_TYPE(params->'$.founders') = 'ARRAY' "
+        "THEN CAST(JSON_LENGTH(params->'$.founders') AS CHAR) ELSE 'x' END "
         "FROM orders WHERE status = 'pending' ORDER BY id LIMIT 20")
                          .WithCallback([this](QueryResult result) {
                              _polling = false;
@@ -118,6 +128,13 @@ void OrderRunner::Poll()
                                  row.takenBefore = FieldText(f[18]);
                                  row.dryRun = FieldText(f[19]);
                                  row.testFail = FieldText(f[20]);
+                                 row.faction = FieldText(f[21]);
+                                 row.guildName = FieldText(f[22]);
+                                 row.leaderName = FieldText(f[23]);
+                                 row.role = FieldText(f[24]);
+                                 row.leaderRace = FieldText(f[25]);
+                                 row.guildId = FieldText(f[26]);
+                                 row.foundersLength = FieldText(f[27]);
                                  if (!_running.count(row.id))
                                      Handle(row);
                              } while (result->NextRow());
@@ -160,9 +177,14 @@ void OrderRunner::Handle(GuildBridge::OrderRow const& row)
         case GuildBridge::OrderType::RunDungeon:
             DungeonRunMgr::Instance().Begin(order, [id](OrderResult const& result) { Finish(id, result); });
             break;
+        case GuildBridge::OrderType::CreateGuild:
+            NewGameOrders::CreateGuild(order, [id](OrderResult const& result) { Finish(id, result); });
+            break;
+        case GuildBridge::OrderType::CreateFounders:
+            NewGameOrders::CreateFounders(order, [id](OrderResult const& result) { Finish(id, result); });
+            break;
         default:
-            // create_guild, create_founders: Task 15
-            Finish(id, {false, "order type not available yet", ""});
+            Finish(id, {false, "unknown order type '" + row.type + "'", ""});
             break;
     }
 }

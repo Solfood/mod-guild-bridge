@@ -7,6 +7,7 @@
 
 #include "Define.h"
 #include <string>
+#include <vector>
 
 // Every GuildBridge.* option, read once at startup (a change needs a worldserver restart).
 struct BridgeConfig
@@ -19,6 +20,11 @@ struct BridgeConfig
     std::string charactersDb;  // database names of THIS world, from the core's *DatabaseInfo strings
     std::string playerbotsDb;
     std::string testAccount;  // GuildBridge.TestAccount: the normal account that holds clones (test bots)
+    std::string leaderAccount;  // GuildBridge.LeaderAccount: the normal account that holds the user guild's leader
+    // GuildBridge.FounderAccounts: this world's founder accounts (comma-separated names, set per world by the world
+    // controller; preflight C1). They join the population's accounts but are never filled by the bot factory.
+    std::vector<std::string> founderAccounts;
+    uint32 populationReadyShare = 95;  // GuildBridge.Population.ReadyShare: % online for population_ready_at
     uint32 snapshotKeepDays = 14;  // GuildBridge.Snapshot.KeepDays (0 = keep every snapshot)
     uint32 snapshotPerTick = 1;    // GuildBridge.Snapshot.PerTick: batch snapshot requests started per world tick
     uint32 eventFlushMs = 1000;     // GuildBridge.Events.FlushMs: how often queued events are written
@@ -45,6 +51,8 @@ struct BridgeConfig
     // "host;port;user;password;database" -> "database" ("" when the string has fewer than 5 fields).
     static std::string DatabaseNameOf(std::string const& info);
     static bool IsValidWorldId(std::string const& id);
+    // "A, b ,,C" -> {"A", "B", "C"} (account names are upper case in the auth database).
+    static std::vector<std::string> AccountList(std::string const& text);
 };
 
 #endif

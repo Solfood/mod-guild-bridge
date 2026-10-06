@@ -60,4 +60,13 @@ void GuildmasterDatabaseConnection::DoPrepareStatements()
                      "AS new ON DUPLICATE KEY UPDATE online = 0, guild_id = new.guild_id, held = new.held, "
                      "focus = new.focus, in_group = 0, run_id = NULL, updated_at = new.updated_at",
                      CONNECTION_ASYNC);
+    PrepareStatement(GM_UPD_WORLD_STATUS,
+                     "UPDATE world_status SET bridge_version = ?, booted_at = ?, heartbeat_at = ?, population_size = ?, "
+                     "population_online = ?, population_ready_at = NULLIF(?, 0), user_guild_id = ?, test_guild_id = ?, "
+                     "events_dropped = ? WHERE id = 1",
+                     CONNECTION_ASYNC);
+    PrepareStatement(GM_REP_PROFILE,
+                     "REPLACE INTO bot_profiles (guid, guild_id, origin, traits, backstory, order_id, created_at) "
+                     "VALUES (?, ?, ?, ?, ?, NULLIF(?, 0), ?)",
+                     CONNECTION_ASYNC);
 }

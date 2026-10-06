@@ -43,6 +43,32 @@ GuildBridge.WorldId = "w1"
 
 GuildBridge.TestAccount = "GMTEST"
 
+#    GuildBridge.LeaderAccount
+#        Description: The normal (non-bot) account that holds the user guild's leader (create_guild with role
+#                     "user"). The leader is made there, founds the guild and never logs in again. The bridge
+#                     creates the account at startup when it is missing (random password, nobody logs in).
+#        Default:     "GMGUILD"
+
+GuildBridge.LeaderAccount = "GMGUILD"
+
+#    GuildBridge.FounderAccounts
+#        Description: This world's founder accounts, comma-separated names (create_founders puts one founder on
+#                     each, the emptiest first). Set per world by the world controller. They must not start with
+#                     AiPlayerbot.RandomBotAccountPrefix: the bot factory fills those. The bridge creates missing
+#                     ones at startup and adds them to the population's accounts, so founders are population bots
+#                     (logged in and kept by playerbots, FixedPopulation rules).
+#        Default:     "" (none: create_founders fails with "no founder accounts")
+
+GuildBridge.FounderAccounts = ""
+
+#    GuildBridge.Population.ReadyShare
+#        Description: world_status.population_ready_at is set the first time at least this % of the population
+#                     is online after a boot. Advisory: the world controller decides readiness itself from
+#                     population_online / population_size (preflight C7).
+#        Default:     95
+
+GuildBridge.Population.ReadyShare = 95
+
 #    GuildBridge.Snapshot.KeepDays
 #        Description: Per-bot snapshots (player dumps in bot_snapshots) older than this many days are deleted at
 #                     startup and after every snapshot_all order; a bot's newest snapshot is always kept.

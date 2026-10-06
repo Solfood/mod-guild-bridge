@@ -6,6 +6,7 @@
 #ifndef MOD_GUILD_BRIDGE_CORE_ORDERRULES_H
 #define MOD_GUILD_BRIDGE_CORE_ORDERRULES_H
 
+#include "NewGameRules.h"
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -40,12 +41,6 @@ inline bool FocusFromName(std::string const& name, Focus& out)
     return false;
 }
 
-inline bool IsPrimaryProfession(uint32_t skill)
-{
-    static constexpr std::array<uint32_t, 11> primary = {171, 164, 333, 202, 182, 773, 755, 165, 186, 393, 197};
-    return std::find(primary.begin(), primary.end(), skill) != primary.end();
-}
-
 // Every field as text, exactly as MySQL's ->> returned it ("" when absent or null).
 struct OrderRow
 {
@@ -53,6 +48,7 @@ struct OrderRow
     std::string type, bot, focus, guild, rank, first, second, dungeon;
     std::array<std::string, 5> party;
     std::string partyLength, heroic, approach, snapshotId, takenBefore, dryRun, testFail;
+    std::string faction, guildName, leaderName, role, leaderRace, guildId, foundersLength;  // New Game orders
 };
 
 struct ParsedOrder
@@ -73,6 +69,11 @@ struct ParsedOrder
     bool dryRun = false;
     // Test seams only: "load", "crash", "purge_timeout", "delete_fail" (restore), "entrance", "dcfail" (run_dungeon).
     std::string testFail;
+    // create_guild / create_founders (spec §2b)
+    std::string faction, guildName, leaderName, role;
+    uint8_t leaderRace = 0;  // 0 = the faction's default (Human / Orc)
+    uint32_t guildId = 0;
+    uint32_t founderCount = 0;
 };
 
 inline bool ParseUInt(std::string const& text, uint64_t max, uint64_t& out)
@@ -82,9 +83,11 @@ inline bool ParseUInt(std::string const& text, uint64_t max, uint64_t& out)
     uint64_t value = 0;
     for (char c : text)
     {
-        if (value > (max - static_cast<uint64_t>(c - '0')) / 10)
+        uint64_t const digit = static_cast<uint64_t>(c - '0');
+        // digit > max first: (max - digit) would wrap and let a one-digit value over max through ("6" for 5).
+        if (digit > max || value > (max - digit) / 10)
             return false;
-        value = value * 10 + static_cast<uint64_t>(c - '0');
+        value = value * 10 + digit;
     }
     out = value;
     return true;
@@ -114,7 +117,9 @@ inline OrderType OrderTypeFromName(std::string const& name)
     if (name == "snapshot") return OrderType::Snapshot;
     if (name == "snapshot_all") return OrderType::SnapshotAll;
     if (name == "restore") return OrderType::Restore;
-    return OrderType::Unknown;  // Task 15 adds create_guild and create_founders here
+    if (name == "create_guild") return OrderType::CreateGuild;
+    if (name == "create_founders") return OrderType::CreateFounders;
+    return OrderType::Unknown;
 }
 
 // "" when the order is well-formed; else the failure reason (contract §4 prefixes).
@@ -238,8 +243,51 @@ inline std::string ParseOrder(OrderRow const& row, ParsedOrder& out)
         case OrderType::SnapshotAll:
             return "";  // no fields
         case OrderType::CreateGuild:
+        {
+            out.role = row.role.empty() ? "user" : row.role;
+            if (out.role != "user" && out.role != "test")
+                return "bad value for role";
+            if (row.faction.empty())
+                return "missing field faction";
+            Faction faction = Faction::Alliance;
+            if (!FactionFromName(row.faction, faction))
+                return "bad value for faction";
+            out.faction = row.faction;
+            if (row.guildName.empty())
+                return "missing field guild_name";
+            if (row.guildName.size() < 2 || row.guildName.size() > 24 || row.guildName.front() == ' ' ||
+                row.guildName.back() == ' ' ||
+                !std::all_of(row.guildName.begin(), row.guildName.end(),
+                             [](unsigned char c) { return (std::isalpha(c) && c < 0x80) || c == ' '; }))
+                return "bad value for guild_name";
+            out.guildName = row.guildName;
+            if (row.leaderName.empty())
+                return "missing field leader_name";
+            out.leaderName = NormalizeName(row.leaderName);
+            if (out.leaderName.empty())
+                return "bad name: " + row.leaderName;
+            if (!row.leaderRace.empty())
+            {
+                Faction raceFaction = Faction::Alliance;
+                if (!ParseUInt(row.leaderRace, 255, value) || !RaceFaction(static_cast<uint8_t>(value), raceFaction) ||
+                    raceFaction != faction)
+                    return "bad value for leader_race";
+                out.leaderRace = static_cast<uint8_t>(value);
+            }
+            return "";
+        }
         case OrderType::CreateFounders:
-            return "";  // Task 15 replaces these two lines with the real checks
+            if (row.guildId.empty())
+                return "missing field guild_id";
+            if (!ParseUInt(row.guildId, UINT32_MAX, value) || !value)
+                return "bad value for guild_id";
+            out.guildId = static_cast<uint32_t>(value);
+            if (row.foundersLength.empty())
+                return "missing field founders";
+            if (!ParseUInt(row.foundersLength, 5, value) || !value)
+                return "bad value for founders (1 to 5)";
+            out.founderCount = static_cast<uint32_t>(value);
+            return "";  // each founder is read and checked by NewGameOrders (JSON_TABLE + ParseFounders)
         case OrderType::Restore:
             // Test seams (test-guild bots only, checked by the restore): "load" (the chosen dump fails to load),
             // "crash" (stops right after the delete), "purge_timeout" (the first answer about the emptied mailbox is

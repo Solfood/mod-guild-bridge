@@ -17,7 +17,7 @@ class Player;
 namespace PlayerbotsAdapter
 {
 bool IsBot(Player* player);             // has a PlayerbotAI (any thread)
-bool IsRandomBot(uint32 guid);          // a population bot (RNDBOT account)
+bool IsRandomBot(uint32 guid);          // a population bot (an "add" record on a population account)
 // What playerbots' strategy assignment reads off a character (class, talent tab, level, Cat Form, Thick Hide), for
 // GuildBridge::ReadsAsTank/ReadsAsHealer: the roles mod-dungeon-clear sees after it resets the strategies. Not the
 // current form or strategies. World thread; player in the world.
@@ -33,6 +33,15 @@ bool IsHeld(uint32 guid);               // any thread
 void Hold(uint32 guid);                 // fork RandomPlayerbotMgr::Hold: the population (and raisings) leave it alone
 void Release(uint32 guid);
 bool IsRaising(uint32 guid);            // world thread: the original or death knight of an unfinished raising
+// The fixed population (Task 15). World thread.
+void AddPopulationAccount(uint32 accountId);  // startup only: a founder account's characters may be population bots
+// fork RandomPlayerbotMgr::AddToPopulation (as raisings do): logged in and kept by the population manager. A founder
+// is added with joinsBotGuild = false: it waits guildless at login until the bridge places it (SetJoinsBotGuild).
+void AddToPopulation(uint32 guid, bool joinsBotGuild);
+void SetJoinsBotGuild(uint32 guid, bool joins);
+bool JoinsBotGuild(uint32 guid);        // false while a founder waits for the bridge to place it (fork event value)
+uint32 PopulationSize();                // fork PopulationSize: bots with an "add" record (held ones included)
+uint32 PopulationOnline();              // population bots in the world with a bot brain (no clones; preflight D22)
 void SetRaisingsUserGuild(uint32 guildId);  // world thread: the fork's raisings cap the user's guild per wave
 uint32 RaisingsUserGuild();
 

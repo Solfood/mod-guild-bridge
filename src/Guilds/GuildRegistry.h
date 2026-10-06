@@ -11,6 +11,7 @@
 #include <functional>
 #include <optional>
 #include <string>
+#include <vector>
 
 enum class GuildRole : uint8
 {
@@ -21,7 +22,8 @@ enum class GuildRole : uint8
 
 // The two guilds the bridge manages. RoleOf/GuildIdFor/IsTestAccount are lock-free and safe from map threads.
 // Holds: none. A leader is never a population bot (BeginCreate refuses one), so the population manager never
-// touches it; a restart mid-creation leaves no guild and no row, and creation can simply be asked for again.
+// touches it; a restart mid-creation leaves no guild and no row, and creation can simply be asked for again
+// (create_guild then reuses the guildless leader it had already made; NewGameOrders).
 class GuildRegistry
 {
 public:
@@ -32,6 +34,11 @@ public:
     bool IsTestAccount(uint32 accountId) const { return accountId && accountId == _testAccount.load(); }
     // A registered guild's leader (world thread): `testbots login` leaves it offline (spec §4.8).
     bool IsRegisteredLeader(ObjectGuid guid) const;
+    // create_guild: user -> GuildBridge.LeaderAccount, test -> GuildBridge.TestAccount.
+    std::string const& LeaderAccountName(GuildRole role) const;
+    // GuildBridge.FounderAccounts resolved at startup (created when missing; preflight C1). World thread.
+    std::vector<uint32> const& FounderAccounts() const { return _founderAccounts; }
+    void Unregister(GuildRole role);  // test seam only (`bridge guild disband test`)
     static char const* RoleName(GuildRole role);
     static GuildRole RoleFromName(std::string const& name);
 
@@ -57,6 +64,7 @@ private:
     std::atomic<uint32> _user{0};
     std::atomic<uint32> _test{0};
     std::atomic<uint32> _testAccount{0};
+    std::vector<uint32> _founderAccounts;
     std::optional<Pending> _pending;
     // Guild::Create writes the guild row asynchronously; playerbots' cache reads that table, so it is read
     // again once the write has surely landed (until then a new guild may not count as "real").

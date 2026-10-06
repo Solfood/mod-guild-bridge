@@ -10,12 +10,14 @@
 #include "Firsts.h"
 #include "GuildRegistry.h"
 #include "Log.h"
+#include "NewGameOrders.h"
 #include "OrderRunner.h"
 #include "RestoreMgr.h"
 #include "ScriptMgr.h"
 #include "SimpleOrders.h"
 #include "StateWriter.h"
 #include "StuckDetector.h"
+#include "WorldStatus.h"
 #include "WorldScript.h"
 
 // Startup and the one world-thread tick that drives every bridge part (later tasks add calls here).
@@ -43,6 +45,8 @@ public:
         OrderRunner::Instance().RecoverAtStartup();
         StateWriter::Instance().LoadFocusAtStartup();
         StuckDetector::Instance().CloseAllAtStartup();
+        NewGameOrders::LoadAtStartup();  // founders a restart left outside their guild
+        WorldStatus::Instance().WriteNow();
     }
 
     void OnUpdate(uint32 diff) override
@@ -58,6 +62,8 @@ public:
         DungeonRunMgr::Instance().Update(diff);
         StateWriter::Instance().Update(diff);
         StuckDetector::Instance().Update(diff);
+        NewGameOrders::Update(diff);
+        WorldStatus::Instance().Update(diff);
         _flushInMs = _flushInMs > diff ? _flushInMs - diff : 0;
         if (!_flushInMs)
         {
