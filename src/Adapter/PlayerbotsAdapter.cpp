@@ -4,6 +4,7 @@
 
 #include "PlayerbotsAdapter.h"
 
+#include "AiFactory.h"
 #include "MotionMaster.h"
 #include "Player.h"
 #include "PlayerbotAI.h"
@@ -24,13 +25,16 @@ bool PlayerbotsAdapter::IsBot(Player* player) { return player && GET_PLAYERBOT_A
 
 bool PlayerbotsAdapter::IsRandomBot(uint32 guid) { return sRandomPlayerbotMgr.IsRandomBot(guid); }
 
-char const* PlayerbotsAdapter::SpecRole(Player* player)
+GuildBridge::SeatSpec PlayerbotsAdapter::SeatSpecOf(Player* player)
 {
-    if (PlayerbotAI::IsTank(player, /*bySpec*/ true))
-        return "tank";
-    if (PlayerbotAI::IsHeal(player, /*bySpec*/ true))
-        return "heal";
-    return "dps";
+    GuildBridge::SeatSpec spec;
+    spec.name = player->GetName();
+    spec.cls = player->getClass();
+    spec.tab = AiFactory::GetPlayerSpecTab(player);
+    spec.level = player->GetLevel();
+    spec.hasCatForm = player->HasSpell(768);      // Cat Form (AiFactory SPELL_CAT_FORM)
+    spec.hasThickHide = player->HasAura(16931);   // Thick Hide (AiFactory SPELL_DRUID_THICK_HIDE)
+    return spec;
 }
 
 // Masterless logins are owned by sRandomPlayerbotMgr (the same path mod-dungeon-clear's headless driver uses).

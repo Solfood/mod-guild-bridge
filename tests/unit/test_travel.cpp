@@ -35,25 +35,43 @@ int main()
     CHECK_EQ(std::string(""), LevelProblem({{"Ann", 12}, {"Bob", 22}}, band));
     CHECK_EQ(std::string("level out of range: Cid is 9 (12-22)"), LevelProblem({{"Ann", 15}, {"Cid", 9}}, band));
 
-    CHECK_EQ(static_cast<std::size_t>(0), RoleWarnings({1, 5, 3, 4, 8}).size());
-    std::vector<std::string> const w = RoleWarnings({3, 4, 1, 1, 1});
-    CHECK_EQ(static_cast<std::size_t>(2), w.size());
-    CHECK_EQ(std::string("the tank slot has no tank class"), w[0]);
-    CHECK_EQ(std::string("the healer slot has no healing class"), w[1]);
+    // Roles as playerbots' strategy assignment (what mod-dungeon-clear's leader election reads) makes them.
+    // cls, tab: 1 warrior (2 prot), 2 paladin (0 holy, 1 prot), 5 priest (2 shadow), 8 mage, 11 druid (1 feral, 2 resto).
+    auto seat = [](std::string n, uint8_t cls, uint8_t tab, uint32_t level = 15, bool cat = false, bool hide = false) {
+        return SeatSpec{n, cls, tab, level, cat, hide};
+    };
+    CHECK_TRUE(ReadsAsTank(seat("Bear", 11, 1, 15)));                     // low-level feral, no Cat Form: tank
+    CHECK_TRUE(ReadsAsTank(seat("Bear", 11, 1, 15, true)));               // below 20 the non-combat tank assist counts
+    CHECK_TRUE(!ReadsAsTank(seat("Cat", 11, 1, 30, true)));               // a cat at 30: dps
+    CHECK_TRUE(ReadsAsTank(seat("Hide", 11, 1, 30, true, true)));         // Thick Hide: tank, whatever its form
+    CHECK_TRUE(!ReadsAsTank(seat("Arms", 1, 0)));                         // talentless warrior = arms
+    CHECK_TRUE(ReadsAsTank(seat("Prot", 2, 1)));
+    CHECK_TRUE(ReadsAsHealer(seat("Holy", 2, 0)) && !ReadsAsHealer(seat("Shadow", 5, 2)));
 
-    // Roles as mod-dungeon-clear reads them (by talent spec): slot 0 must read tank, slot 1 heal.
-    using Seat = std::pair<std::string, std::string>;
-    CHECK_EQ(std::string(""), RoleProblem({Seat{"Tom", "tank"}, Seat{"Hal", "heal"}, Seat{"Dee", "dps"},
-                                           Seat{"Dan", "dps"}, Seat{"Dot", "dps"}}));
-    CHECK_EQ(std::string("no tank in this party: Tom has no tank spec"),
-             RoleProblem({Seat{"Tom", "dps"}, Seat{"Hal", "heal"}, Seat{"Dee", "tank"}, Seat{"Dan", "dps"},
-                          Seat{"Dot", "dps"}}));
-    CHECK_EQ(std::string("no healer in this party: Hal has no healer spec"),
-             RoleProblem({Seat{"Tom", "tank"}, Seat{"Hal", "dps"}, Seat{"Dee", "heal"}, Seat{"Dan", "dps"},
-                          Seat{"Dot", "dps"}}));
-    CHECK_EQ(std::string("no tank in this party: Tom has no tank spec"),  // the tank is named first
-             RoleProblem({Seat{"Tom", "heal"}, Seat{"Hal", "tank"}, Seat{"Dee", "dps"}, Seat{"Dan", "dps"},
-                          Seat{"Dot", "dps"}}));
-    CHECK_EQ(std::string(""), RoleProblem({}));
+    PartyPlan p = ArrangeParty({seat("Tom", 1, 2), seat("Hal", 11, 2), seat("Dee", 8, 0), seat("Dan", 8, 0),
+                                seat("Dot", 8, 0)});
+    CHECK_EQ(std::string(""), p.problem);
+    CHECK_EQ(static_cast<std::size_t>(0), p.warnings.size());
+    CHECK_TRUE((p.order == std::vector<std::size_t>{0, 1, 2, 3, 4}));
+    // The tank in seat 3 and the healer in seat 5: reordered, accepted, with a warning naming the new order.
+    p = ArrangeParty({seat("Dee", 8, 0), seat("Dan", 8, 0), seat("Bear", 11, 1), seat("Dot", 8, 0), seat("Pri", 5, 1)});
+    CHECK_EQ(std::string(""), p.problem);
+    CHECK_TRUE((p.order == std::vector<std::size_t>{2, 4, 0, 1, 3}));
+    CHECK_EQ(static_cast<std::size_t>(1), p.warnings.size());
+    CHECK_EQ(std::string("party reordered: tank Bear, healer Pri"), p.warnings[0]);
+    // No healer: accepted (dungeon-clear needs none), with a warning.
+    p = ArrangeParty({seat("Tom", 1, 2), seat("Dee", 8, 0), seat("Dan", 8, 0), seat("Dot", 8, 0), seat("Don", 8, 0)});
+    CHECK_EQ(std::string(""), p.problem);
+    CHECK_TRUE((p.order == std::vector<std::size_t>{0, 1, 2, 3, 4}));
+    CHECK_EQ(std::string("no healer in this party"), p.warnings.at(0));
+    CHECK_EQ(static_cast<std::size_t>(1), p.warnings.size());
+    // A tank-and-healer pair given the wrong way round is swapped, not refused.
+    p = ArrangeParty({seat("Hal", 11, 2), seat("Tom", 1, 2), seat("Dee", 8, 0), seat("Dan", 8, 0), seat("Dot", 8, 0)});
+    CHECK_EQ(std::string(""), p.problem);
+    CHECK_TRUE((p.order == std::vector<std::size_t>{1, 0, 2, 3, 4}));
+    // No tank at all: refused.
+    p = ArrangeParty({seat("Arms", 1, 0), seat("Hal", 11, 2), seat("Cat", 11, 1, 30, true), seat("Dan", 8, 0),
+                      seat("Dot", 8, 0)});
+    CHECK_EQ(std::string("no tank in this party: no member has a tank spec"), p.problem);
     return UnitFailures();
 }

@@ -152,8 +152,7 @@ void DungeonRunMgr::Begin(ParsedOrder const& order, std::function<void(OrderResu
     // as such even when it is offline. Busy order (preflight D10): run -> restore -> held -> raising.
     std::vector<Spot> spots;
     std::vector<std::pair<std::string, uint32_t>> levels;
-    std::array<uint8_t, 5> classes{};
-    std::vector<std::pair<std::string, std::string>> seats;  // name, role by talent spec (as dungeon-clear reads it)
+    std::vector<SeatSpec> seats;  // as playerbots' strategy assignment reads them (what dungeon-clear sees)
     TeamId team = TEAM_NEUTRAL;
     bool allTest = true;
     for (std::size_t i = 0; i < 5; ++i)
@@ -195,12 +194,10 @@ void DungeonRunMgr::Begin(ParsedOrder const& order, std::function<void(OrderResu
             return finish({false, "party spans both factions", ""});
         spots.push_back({bot->GetMapId(), bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ()});
         levels.emplace_back(name, bot->GetLevel());
-        classes[i] = bot->getClass();
-        seats.emplace_back(name, PlayerbotsAdapter::SpecRole(bot));
+        seats.push_back(PlayerbotsAdapter::SeatSpecOf(bot));
         Member member;
         member.guid = guid;
         member.name = name;
-        member.role = ROLES[i];
         member.cls = bot->getClass();
         member.level = bot->GetLevel();
         member.population = PlayerbotsAdapter::IsRandomBot(guid);
@@ -212,13 +209,22 @@ void DungeonRunMgr::Begin(ParsedOrder const& order, std::function<void(OrderResu
         levels, BandFor(order.heroic ? info.heroicLevel : info.recommendedLevel, cfg.runLevelBelow, cfg.runLevelAbove));
     if (!levelProblem.empty())
         return finish({false, levelProblem, ""});
-    // dungeon-clear elects its leader among tanks by talent spec: without one, `dc on` silently does nothing and the
-    // run would end "dc on did not take" after the whole trip. Refuse here, with a reason the player can act on.
-    std::string const roleProblem = RoleProblem(seats);
-    if (!roleProblem.empty())
-        return finish({false, roleProblem, ""});
+    // dungeon-clear needs a tank (it elects its leader among tanks; without one `dc on` silently does nothing and the
+    // run would end "dc on did not take" after the whole trip) and nothing more. Refuse only that; otherwise put the
+    // party in role order ourselves (tank, healer if any, the rest) and say so in the warnings.
+    PartyPlan const plan = ArrangeParty(seats);
+    if (!plan.problem.empty())
+        return finish({false, plan.problem, ""});
+    std::vector<Member> ordered;
+    for (std::size_t i = 0; i < plan.order.size(); ++i)
+    {
+        ordered.push_back(run->members[plan.order[i]]);
+        // Seat 1 is "heal" only when a healer was found; without one it is a dps like the rest.
+        ordered.back().role = i == 1 && !ReadsAsHealer(seats[plan.order[1]]) ? "dps" : ROLES[i];
+    }
+    run->members = std::move(ordered);
 
-    std::vector<std::string> const warnings = RoleWarnings(classes);
+    std::vector<std::string> const& warnings = plan.warnings;
     run->warningsJson = "[";
     for (std::size_t i = 0; i < warnings.size(); ++i)
     {

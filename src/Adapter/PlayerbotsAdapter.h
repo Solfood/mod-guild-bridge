@@ -18,9 +18,10 @@ namespace PlayerbotsAdapter
 {
 bool IsBot(Player* player);             // has a PlayerbotAI (any thread)
 bool IsRandomBot(uint32 guid);          // a population bot (RNDBOT account)
-// "tank", "heal" or "dps" by talent spec (playerbots' IsTank/IsHeal bySpec), the reading mod-dungeon-clear gives a
-// roster member once it resets its strategies. World thread; player in the world.
-char const* SpecRole(Player* player);
+// What playerbots' strategy assignment reads off a character (class, talent tab, level, Cat Form, Thick Hide), for
+// GuildBridge::ReadsAsTank/ReadsAsHealer: the roles mod-dungeon-clear sees after it resets the strategies. Not the
+// current form or strategies. World thread; player in the world.
+GuildBridge::SeatSpec SeatSpecOf(Player* player);
 void LoginMasterless(ObjectGuid guid);  // log a character in as a bot with no master (clones, guild master)
 void Logout(ObjectGuid guid);           // log a bot out through whichever holder owns it
 bool IsMasterlessLoggedIn(ObjectGuid guid);  // the masterless login finished (playerbots' login steps done)

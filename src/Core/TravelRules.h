@@ -82,31 +82,93 @@ inline std::string LevelProblem(std::vector<std::pair<std::string, uint32_t>> co
     return "";
 }
 
-// classes in role order (tank, heal, dps, dps, dps). WotLK class ids: 1 warrior, 2 paladin, 5 priest, 6 death knight,
-// 7 shaman, 11 druid. Warnings only: the run still goes.
-inline std::vector<std::string> RoleWarnings(std::array<uint8_t, 5> const& classes)
+// One party member as playerbots' strategy assignment sees it (AiFactory::AddDefault*Strategies, which
+// mod-dungeon-clear triggers with ResetStrategies at roster time). WotLK class ids; tab = AiFactory::GetPlayerSpecTab
+// (most points; below level 10 or with no talents a per-class default).
+struct SeatSpec
 {
-    std::vector<std::string> warnings;
-    auto in = [](uint8_t c, std::initializer_list<uint8_t> set) {
-        return std::find(set.begin(), set.end(), c) != set.end();
-    };
-    if (!in(classes[0], {1, 2, 6, 11}))
-        warnings.push_back("the tank slot has no tank class");
-    if (!in(classes[1], {2, 5, 7, 11}))
-        warnings.push_back("the healer slot has no healing class");
-    return warnings;
+    std::string name;
+    uint8_t cls = 0;
+    uint8_t tab = 0;
+    uint32_t level = 0;
+    bool hasCatForm = false;    // knows Cat Form (768)
+    bool hasThickHide = false;  // has the Thick Hide aura (16931)
+};
+
+// A tank strategy (STRATEGY_TYPE_TANK in its combat or non-combat engine): what mod-dungeon-clear's leader election
+// asks for. Form-independent. Warrior protection (tab 2), paladin protection (1), death knight blood (0), feral druid
+// (1) unless it fights as a cat: combat "bear" when it lacks Cat Form or has Thick Hide, non-combat "tank assist" below
+// level 20 or with Thick Hide.
+inline bool ReadsAsTank(SeatSpec const& s)
+{
+    switch (s.cls)
+    {
+        case 1: return s.tab == 2;
+        case 2: return s.tab == 1;
+        case 6: return s.tab == 0;
+        case 11: return s.tab == 1 && (!s.hasCatForm || s.hasThickHide || s.level < 20);
+        default: return false;
+    }
 }
 
-// Roles in role order (tank, heal, dps, dps, dps) as mod-dungeon-clear reads them: by talent spec ("tank", "heal" or
-// "dps"; playerbots' IsTank/IsHeal by spec). dungeon-clear elects its leader among tanks only, so a party whose tank
-// does not read as a tank never starts ("dc on did not take"). "" when the tank and healer seats read right.
-inline std::string RoleProblem(std::vector<std::pair<std::string, std::string>> const& seats)
+// A healing strategy: priest discipline/holy, shaman restoration, paladin holy, druid restoration.
+inline bool ReadsAsHealer(SeatSpec const& s)
 {
-    if (seats.size() > 0 && seats[0].second != "tank")
-        return "no tank in this party: " + seats[0].first + " has no tank spec";
-    if (seats.size() > 1 && seats[1].second != "heal")
-        return "no healer in this party: " + seats[1].first + " has no healer spec";
-    return "";
+    switch (s.cls)
+    {
+        case 5: return s.tab != 2;
+        case 7: return s.tab == 2;
+        case 2: return s.tab == 0;
+        case 11: return s.tab == 2;
+        default: return false;
+    }
+}
+
+// The party in role order. mod-dungeon-clear needs a tank (it elects its leader among tanks; without one `dc on`
+// silently does nothing) and nothing else, so: no tank = problem; otherwise order = tank first (the given first seat
+// if it is one), then a healer if there is one (the given second seat if it is one), then the rest as given.
+// Warnings: no healer, and the new order when it changed.
+struct PartyPlan
+{
+    std::string problem;
+    std::vector<std::size_t> order;
+    std::vector<std::string> warnings;
+};
+
+inline PartyPlan ArrangeParty(std::vector<SeatSpec> const& seats)
+{
+    PartyPlan plan;
+    std::size_t const none = seats.size();
+    std::size_t tank = none, heal = none;
+    for (std::size_t i = 0; i < seats.size() && tank == none; ++i)
+        if (ReadsAsTank(seats[i]))
+            tank = i;
+    if (tank == none)
+    {
+        plan.problem = "no tank in this party: no member has a tank spec";
+        return plan;
+    }
+    if (seats.size() > 1 && tank != 1 && ReadsAsHealer(seats[1]))
+        heal = 1;
+    for (std::size_t i = 0; i < seats.size() && heal == none; ++i)
+        if (i != tank && ReadsAsHealer(seats[i]))
+            heal = i;
+    plan.order.push_back(tank);
+    if (heal != none)
+        plan.order.push_back(heal);
+    for (std::size_t i = 0; i < seats.size(); ++i)
+        if (i != tank && i != heal)
+            plan.order.push_back(i);
+    if (heal == none)
+        plan.warnings.push_back("no healer in this party");
+    for (std::size_t i = 0; i < plan.order.size(); ++i)
+        if (plan.order[i] != i)
+        {
+            plan.warnings.push_back("party reordered: tank " + seats[tank].name +
+                                    (heal == none ? std::string() : ", healer " + seats[heal].name));
+            break;
+        }
+    return plan;
 }
 }  // namespace GuildBridge
 
