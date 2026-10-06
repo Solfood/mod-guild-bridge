@@ -285,16 +285,18 @@ void NewGameOrders::CreateGuild(ParsedOrder const& order, Finish finish)
     uint8 const race = order.leaderRace ? order.leaderRace : DefaultLeaderRace(faction);
 
     std::string const accountName = GuildRegistry::Instance().LeaderAccountName(role);
-    LoginDatabasePreparedStatement* stmt = LoginDatabase.GetPreparedStatement(LOGIN_GET_ACCOUNT_ID_BY_USERNAME);
-    stmt->SetData(0, accountName);
+    // A plain query: the core prepares LOGIN_GET_ACCOUNT_ID_BY_USERNAME for sync connections only.
+    std::string escaped = accountName;
+    LoginDatabase.EscapeString(escaped);
     std::string const guildName = order.guildName;
     std::string const leaderName = order.leaderName;
     std::string const factionName = order.faction;
     bool const dryRun = order.dryRun;
-    BridgeAsync::Add(LoginDatabase.AsyncQuery(stmt).WithPreparedCallback([=](PreparedQueryResult result) {
+    std::string const sql = Acore::StringFormat("SELECT id FROM account WHERE username = '{}'", escaped);
+    BridgeAsync::Add(LoginDatabase.AsyncQuery(sql).WithCallback([=](QueryResult result) {
         if (!result)
             return finish({false, "no leader account " + accountName, ""});
-        uint32 const account = result->Fetch()[0].Get<uint32>();
+        uint32 const account = (*result)[0].Get<uint32>();
         // A leader this order already made, left guildless by a restart before the guild was founded, is used again
         // (so the controller can simply send create_guild again). Anything else with that name is taken.
         uint32 reuse = 0;
