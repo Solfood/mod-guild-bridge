@@ -361,6 +361,7 @@ void NewGameOrders::LoadAtStartup()
                 break;
             case FounderBootAction::Adopt:
                 founderProfiles[guid] = guildId;
+                PlayerbotsAdapter::LoadStoredValues(guid);  // keeps its profession preset visible after the add
                 toAdd.push_back(guid);  // added once the population is loaded (Update)
                 if (!cache->GuildId)
                     unplaced.push_back({guid, guildId});

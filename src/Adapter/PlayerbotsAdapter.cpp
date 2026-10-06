@@ -148,6 +148,8 @@ void PlayerbotsAdapter::PresetProfessions(uint32 guid, uint32 first, uint32 seco
     sRandomPlayerbotMgr.SetValue(guid, "secondSkill", second);
 }
 
+void PlayerbotsAdapter::LoadStoredValues(uint32 guid) { sRandomPlayerbotMgr.GetValue(guid, "firstSkill"); }
+
 uint32 PlayerbotsAdapter::StoredProfession(uint32 guid, bool second)
 {
     return sRandomPlayerbotMgr.GetValue(guid, second ? "secondSkill" : "firstSkill");

@@ -62,6 +62,10 @@ ProfessionState GetProfessionState(Player* bot);
 // World thread. The picker keeps a stored pair; a lone first is kept and only its partner is rolled.
 void PresetProfessions(uint32 guid, uint32 first, uint32 second);
 uint32 StoredProfession(uint32 guid, bool second);  // world thread; for `bridge bot` and bot_state
+// Startup only (sync): the fork reads the bot's stored values (presets, ...) into its cache now. Its first write of
+// a value for a bot whose cache is not loaded yet marks the cache loaded without reading, which would hide values
+// stored by an earlier boot (AddToPopulation is such a write).
+void LoadStoredValues(uint32 guid);
 
 // Roster snapshot (bot_state) and focus. World thread: the fork's focus is a plain byte the map threads read, and
 // world-thread hooks run after the map threads have finished their update (preflight / Task 4 ruling).
