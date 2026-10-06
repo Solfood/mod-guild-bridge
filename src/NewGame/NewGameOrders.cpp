@@ -291,10 +291,10 @@ void NewGameOrders::CreateGuild(ParsedOrder const& order, Finish finish)
     std::string const leaderName = order.leaderName;
     std::string const factionName = order.faction;
     bool const dryRun = order.dryRun;
-    BridgeAsync::Add(LoginDatabase.AsyncQuery(stmt).WithCallback([=](PreparedQueryResult result) {
+    BridgeAsync::Add(LoginDatabase.AsyncQuery(stmt).WithPreparedCallback([=](PreparedQueryResult result) {
         if (!result)
             return finish({false, "no leader account " + accountName, ""});
-        uint32 const account = (*result)[0].Get<uint32>();
+        uint32 const account = result->Fetch()[0].Get<uint32>();
         // A leader this order already made, left guildless by a restart before the guild was founded, is used again
         // (so the controller can simply send create_guild again). Anything else with that name is taken.
         uint32 reuse = 0;
