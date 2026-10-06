@@ -104,7 +104,7 @@ CREATE TABLE IF NOT EXISTS `bot_state` (
   `prof2` SMALLINT UNSIGNED NOT NULL DEFAULT 0,
   `in_group` TINYINT UNSIGNED NOT NULL,
   `run_id` BIGINT UNSIGNED NULL,
-  `held` TINYINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '1 while lent to a run or being restored',
+  `held` TINYINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '1 while held: a population member in a run, or being restored (clones in a run: read run_id)',
   `updated_at` INT UNSIGNED NOT NULL,
   PRIMARY KEY (`guid`),
   KEY `guild` (`guild_id`)
@@ -147,7 +147,7 @@ CREATE TABLE IF NOT EXISTS `dungeon_runs` (
   `map_id` INT UNSIGNED NOT NULL,
   `heroic` TINYINT UNSIGNED NOT NULL DEFAULT 0,
   `party` JSON NOT NULL COMMENT '[{guid,name,role,class,level}] in role order tank, heal, dps, dps, dps',
-  `warnings` JSON NULL COMMENT '["no healer-capable class in the heal slot", ...]',
+  `warnings` JSON NULL COMMENT '["no healer in this party", "party reordered: tank <name>, healer <name>"]',
   `approach` ENUM('travel','teleport','travel_then_teleport') NULL,
   `dc_run_id` VARCHAR(48) NULL,
   `result` ENUM('running','cleared','wiped','abandoned','failed') NOT NULL DEFAULT 'running',
