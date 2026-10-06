@@ -12,9 +12,11 @@
 #include "PlayerbotFactory.h"
 #include "PlayerbotGuildMgr.h"
 #include "PlayerbotMgr.h"
+#include "PlayerbotsDatabase.h"
 #include "Playerbots.h"
 #include "NewRpgInfo.h"
 #include "ProfessionPicker.h"
+#include "QueryResult.h"
 #include "RaisingMgr.h"
 #include "RandomPlayerbotMgr.h"
 #include "StringFormat.h"
@@ -92,6 +94,24 @@ void PlayerbotsAdapter::SetJoinsBotGuild(uint32 guid, bool joins) { sRandomPlaye
 bool PlayerbotsAdapter::JoinsBotGuild(uint32 guid) { return sRandomPlayerbotMgr.JoinsBotGuild(guid); }
 
 uint32 PlayerbotsAdapter::PopulationSize() { return sRandomPlayerbotMgr.PopulationSize(); }
+
+std::unordered_set<uint32> PlayerbotsAdapter::WithPopulationRecord(std::vector<uint32> const& guids)
+{
+    std::unordered_set<uint32> out;
+    if (guids.empty())
+        return out;
+    std::string in;
+    for (uint32 guid : guids)
+        in += (in.empty() ? "" : ",") + std::to_string(guid);
+    // The record GetBots() reads (owner 0, event "add"), expired as FindEvent expires it.
+    if (QueryResult result = PlayerbotsDatabase.Query(
+            "SELECT bot FROM playerbots_random_bots WHERE owner = 0 AND event = 'add' AND value > 0 AND "
+            "(IFNULL(validIn, 0) = 0 OR UNIX_TIMESTAMP() - time < validIn) AND bot IN (" + in + ")"))
+        do
+            out.insert((*result)[0].Get<uint32>());
+        while (result->NextRow());
+    return out;
+}
 
 uint32 PlayerbotsAdapter::PopulationOnline()
 {

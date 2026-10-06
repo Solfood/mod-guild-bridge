@@ -29,6 +29,7 @@
 #include <memory>
 #include <sstream>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -73,8 +74,47 @@ std::vector<std::shared_ptr<RowWait>> waits;
 std::vector<WaitingFounder> unplaced;
 std::vector<FounderOrder> founderOrders;
 uint32 placeTimerMs = 0;
+// Founder profiles (bot_profiles origin founder): guid -> guild. Loaded at startup, kept as orders write them.
+std::unordered_map<uint32, uint32> founderProfiles;
+// Founders to add to the population once the fork has loaded it (its first update: GetBots() loads the "add"
+// records only while its set is empty, so nothing may be added before that).
+std::vector<uint32> toAdd;
+uint32 addWaitMs = 0;
 
 uint32 Now() { return static_cast<uint32>(std::time(nullptr)); }
+
+// Written right after the founder's character is made (final review I1): from then on a restart or a late save can
+// no longer lose it; the next boot or the order sent again finishes it (SettleFounderAtBoot, CanReuseFounder).
+void WriteProfile(uint32 guid, uint32 guildId, Founder const& f, uint64 orderId)
+{
+    GuildmasterPreparedStatement* stmt = GuildmasterDatabase.GetPreparedStatement(GM_REP_PROFILE);
+    stmt->SetData(0, guid);
+    stmt->SetData(1, guildId);
+    stmt->SetData(2, std::string("founder"));
+    stmt->SetData(3, f.traitsJson);
+    stmt->SetData(4, f.backstory);
+    stmt->SetData(5, orderId);
+    stmt->SetData(6, Now());
+    GuildmasterDatabase.Execute(stmt);
+    founderProfiles[guid] = guildId;
+}
+
+// A population bot from now on (logged in and kept by playerbots); it waits guildless at login until it is placed.
+void JoinPopulation(uint32 guid)
+{
+    if (PlayerbotsAdapter::IsRandomBot(guid) || std::find(toAdd.begin(), toAdd.end(), guid) != toAdd.end())
+        return;
+    if (PlayerbotsAdapter::PopulationSize())
+        PlayerbotsAdapter::AddToPopulation(guid, false);
+    else
+        toAdd.push_back(guid);
+}
+
+void Unplace(uint32 guid, uint32 guildId)
+{
+    if (std::none_of(unplaced.begin(), unplaced.end(), [guid](WaitingFounder const& u) { return u.guid == guid; }))
+        unplaced.push_back({guid, guildId});
+}
 
 void WaitForRows(std::vector<uint32> guids, std::function<void(bool)> done)
 {
@@ -90,12 +130,31 @@ bool GameNameAllowed(std::string const& name)
     return ObjectMgr::CheckPlayerName(name, true) == CHAR_NAME_SUCCESS && !sObjectMgr->IsReservedName(name);
 }
 
-std::string GameNameProblem(std::string const& name)
+// The world's checks on a founder's name ("bad name", "name taken"), except that a character an earlier send of
+// create_founders made for this guild is taken back (`reuse` = its guid) instead of "name taken" (final review I1).
+std::string FounderNameProblem(Founder const& f, uint32 guildId, uint32& reuse)
 {
-    if (!GameNameAllowed(name))
-        return "bad name: " + name;
-    if (sCharacterCache->GetCharacterGuidByName(name))
-        return "name taken: " + name;
+    reuse = 0;
+    if (!GameNameAllowed(f.name))
+        return "bad name: " + f.name;
+    ObjectGuid const taken = sCharacterCache->GetCharacterGuidByName(f.name);
+    if (!taken)
+        return "";
+    CharacterCacheEntry const* cache = sCharacterCache->GetCharacterCacheByGuid(taken);
+    if (!cache)
+        return "name taken: " + f.name;
+    std::vector<uint32> const accounts = GuildRegistry::Instance().FounderAccounts();
+    ExistingCharacter existing;
+    existing.onFounderAccount = std::find(accounts.begin(), accounts.end(), cache->AccountId) != accounts.end();
+    existing.guildId = cache->GuildId;
+    existing.race = cache->Race;
+    existing.cls = cache->Class;
+    existing.gender = cache->Sex;
+    auto const profile = founderProfiles.find(taken.GetCounter());
+    existing.profileGuild = profile == founderProfiles.end() ? 0 : profile->second;
+    if (!CanReuseFounder(existing, f, guildId))
+        return "name taken: " + f.name;
+    reuse = taken.GetCounter();
     return "";
 }
 
@@ -105,6 +164,14 @@ std::string JoinNames(std::vector<std::string> const& names)
     for (std::size_t i = 0; i < names.size(); ++i)
         out += (i ? ", " : "") + names[i];
     return out;
+}
+
+// Founders this send made that are not finished (D26 and late saves): their profiles are written, so they are not lost.
+std::string FinishLater(std::vector<std::string> const& made)
+{
+    return made.empty() ? ""
+                        : " (made: " + JoinNames(made) +
+                              "; they are finished at the next restart, or send the order again)";
 }
 
 bool IsPlaced(uint32 guid)
@@ -243,20 +310,90 @@ void UpdatePlacements(uint32 diff)
 void NewGameOrders::LoadAtStartup()
 {
     unplaced.clear();
+    founderProfiles.clear();
+    toAdd.clear();
+    addWaitMs = 0;
     if (!GuildmasterDatabaseReady)
         return;
-    // Startup only (sync): founders whose guild placement a restart cut short. The fork's "no_bot_guild" value says
-    // which still wait; a founder placed and later removed by the player is not put back.
+    // Startup only (sync). Founder profiles, the characters on this world's founder accounts, and which of them have
+    // an "add" record: every founder a restart or a late save cut short is finished or cleaned up here (final review
+    // I1, SettleFounderAtBoot). The fork's "no_bot_guild" value says which finished founders still wait for their
+    // guild; a founder placed and later removed by the player is not put back.
+    std::vector<std::pair<uint32, uint32>> profiles;  // guid, guild
     if (QueryResult result =
             GuildmasterDatabase.Query("SELECT guid, guild_id FROM bot_profiles WHERE origin = 'founder'"))
         do
+            profiles.emplace_back((*result)[0].Get<uint32>(), (*result)[1].Get<uint32>());
+        while (result->NextRow());
+    std::vector<std::pair<uint32, uint32>> onAccounts;  // guid, account
+    std::vector<uint32> const accounts = GuildRegistry::Instance().FounderAccounts();
+    if (!accounts.empty())
+    {
+        std::string in;
+        for (uint32 account : accounts)
+            in += (in.empty() ? "" : ",") + std::to_string(account);
+        if (QueryResult result = CharacterDatabase.Query("SELECT guid, account FROM characters WHERE account IN (" +
+                                                         in + ")"))
+            do
+                onAccounts.emplace_back((*result)[0].Get<uint32>(), (*result)[1].Get<uint32>());
+            while (result->NextRow());
+    }
+    std::vector<uint32> guids;
+    for (auto const& [guid, guildId] : profiles)
+        guids.push_back(guid);
+    for (auto const& [guid, account] : onAccounts)
+        guids.push_back(guid);
+    std::unordered_set<uint32> const added = PlayerbotsAdapter::WithPopulationRecord(guids);
+
+    for (auto const& [guid, guildId] : profiles)
+    {
+        CharacterCacheEntry const* cache =
+            sCharacterCache->GetCharacterCacheByGuid(ObjectGuid::Create<HighGuid::Player>(guid));
+        switch (SettleFounderAtBoot(true, cache != nullptr, added.count(guid) != 0))
         {
-            WaitingFounder founder{(*result)[0].Get<uint32>(), (*result)[1].Get<uint32>()};
-            ObjectGuid const guid = ObjectGuid::Create<HighGuid::Player>(founder.guid);
-            CharacterCacheEntry const* cache = sCharacterCache->GetCharacterCacheByGuid(guid);
-            if (cache && !cache->GuildId && !PlayerbotsAdapter::JoinsBotGuild(founder.guid))
-                unplaced.push_back(founder);
-        } while (result->NextRow());
+            case FounderBootAction::DropProfile:
+                // Its character never reached the database. The guid may be handed out again: forget the profile
+                // and the profession preset made for it.
+                GuildmasterDatabase.Execute(Acore::StringFormat(
+                    "DELETE FROM bot_profiles WHERE guid = {} AND origin = 'founder'", guid));
+                PlayerbotsAdapter::PresetProfessions(guid, 0, 0);
+                LOG_WARN("module.guildbridge", "GUILDBRIDGE founder guid {} was never saved: profile removed", guid);
+                break;
+            case FounderBootAction::Adopt:
+                founderProfiles[guid] = guildId;
+                toAdd.push_back(guid);  // added once the population is loaded (Update)
+                if (!cache->GuildId)
+                    unplaced.push_back({guid, guildId});
+                LOG_WARN("module.guildbridge", "GUILDBRIDGE founder {} was made but not finished: added to the population "
+                         "and placed in guild {} once it logs in", cache->Name, guildId);
+                break;
+            default:
+                founderProfiles[guid] = guildId;
+                if (!cache->GuildId && !PlayerbotsAdapter::JoinsBotGuild(guid))
+                    unplaced.push_back({guid, guildId});
+                break;
+        }
+    }
+    for (auto const& [guid, account] : onAccounts)
+    {
+        if (founderProfiles.count(guid))
+            continue;
+        CharacterCacheEntry const* cache =
+            sCharacterCache->GetCharacterCacheByGuid(ObjectGuid::Create<HighGuid::Player>(guid));
+        std::string const name = cache ? cache->Name : std::to_string(guid);
+        if (SettleFounderAtBoot(false, true, added.count(guid) != 0) == FounderBootAction::DeleteCharacter)
+        {
+            // Made a moment before a restart, before its profile was written: nothing knows it. Delete it, so its
+            // name and its account slot are free for the order sent again. DeleteFromDB makes a few sync reads
+            // (startup only, D7).
+            Player::DeleteFromDB(guid, account, false, true);
+            LOG_WARN("module.guildbridge", "GUILDBRIDGE founder account character {} (guid {}) had no founder profile "
+                     "and was never added to the population: deleted", name, guid);
+        }
+        else
+            LOG_WARN("module.guildbridge", "GUILDBRIDGE founder account character {} (guid {}) has no founder profile; "
+                     "it is a population bot, so it is left alone", name, guid);
+    }
     if (!unplaced.empty())
         LOG_INFO("module.guildbridge", "GUILDBRIDGE {} founder(s) still to be placed in their guild", unplaced.size());
 }
@@ -265,6 +402,24 @@ std::size_t NewGameOrders::Unplaced() { return unplaced.size(); }
 
 void NewGameOrders::Update(uint32 diff)
 {
+    if (!toAdd.empty())
+    {
+        addWaitMs += diff;
+        if (PlayerbotsAdapter::PopulationSize())
+        {
+            for (uint32 guid : toAdd)
+                if (!PlayerbotsAdapter::IsRandomBot(guid))
+                    PlayerbotsAdapter::AddToPopulation(guid, false);
+            LOG_INFO("module.guildbridge", "GUILDBRIDGE {} founder(s) added to the population", toAdd.size());
+            toAdd.clear();
+        }
+        else if (addWaitMs > 300000)
+        {
+            LOG_WARN("module.guildbridge", "GUILDBRIDGE {} founder(s) still wait for the population to load",
+                     toAdd.size());
+            addWaitMs = 0;
+        }
+    }
     UpdateRowWaits(diff);
     UpdatePlacements(diff);
 }
@@ -350,6 +505,9 @@ void NewGameOrders::CreateFounders(ParsedOrder const& order, Finish finish)
         return finish({false, "no such guild (it must be the user or the test guild)", ""});
     uint64 const orderId = order.id;
     bool const dryRun = order.dryRun;
+    bool const cut = order.testFail == "cut";
+    if (!order.testFail.empty() && GuildRegistry::Instance().RoleOf(guildId) != GuildRole::Test)
+        return finish({false, "test seams only work on test-guild bots", ""});
     // Each founder's fields as text, read with JSON_TABLE. A field of the wrong JSON type reads as "" (then
     // ParseFounders refuses it); traits come back as MySQL prints the array, and ParseFounders checks them.
     auto text = [](char const* column) {
@@ -389,10 +547,13 @@ void NewGameOrders::CreateFounders(ParsedOrder const& order, Finish finish)
             return finish({false, "no such guild (its leader is missing)", ""});
         std::vector<Founder> founders;
         std::string problem = ParseFounders(rows, faction, founders);
+        // reuse[i]: the guid of a founder an earlier send already made (taken back, not made again).
+        std::vector<uint32> reuse(founders.size(), 0);
         for (std::size_t i = 0; problem.empty() && i < founders.size(); ++i)
-            problem = GameNameProblem(founders[i].name);
+            problem = FounderNameProblem(founders[i], guildId, reuse[i]);
         if (!problem.empty())
             return finish({false, problem, ""});
+        std::size_t const toMake = static_cast<std::size_t>(std::count(reuse.begin(), reuse.end(), 0u));
 
         // This world's founder accounts (preflight C1), one founder each, the emptiest first.
         std::vector<uint32> const accounts = GuildRegistry::Instance().FounderAccounts();
@@ -414,70 +575,84 @@ void NewGameOrders::CreateFounders(ParsedOrder const& order, Finish finish)
                 list.emplace_back(account, used[account]);
             std::vector<uint32> picked;
             uint32 const perAccount = sWorld->getIntConfig(CONFIG_CHARACTERS_PER_REALM);
-            if (!PickFounderAccounts(list, perAccount, founders.size(), picked))
+            if (!PickFounderAccounts(list, perAccount, toMake, picked))
             {
                 auto const free = std::count_if(list.begin(), list.end(),
                                                 [perAccount](auto const& a) { return a.second < perAccount; });
                 return finish({false, "no free founder account slot (" + std::to_string(free) + " free, " +
-                                          std::to_string(founders.size()) + " needed)", ""});
+                                          std::to_string(toMake) + " needed)", ""});
             }
             Guild* target = sGuildMgr->GetGuildById(guildId);
             if (!target)
                 return finish({false, "no such guild (it was disbanded meanwhile)", ""});
+            std::size_t const taken = founders.size() - toMake;
             if (dryRun)
                 return finish({true, "dry run: would create " + std::to_string(founders.size()) + " founder(s) in " +
-                                         target->GetName(), ""});
+                                         target->GetName() +
+                                         (taken ? " (" + std::to_string(taken) + " made before, taken back)" : ""),
+                               ""});
             // The names again: one may have been taken while we read the accounts. Still nothing made.
-            for (Founder const& f : founders)
-                if (std::string const taken = GameNameProblem(f.name); !taken.empty())
-                    return finish({false, taken, ""});
+            for (std::size_t i = 0; i < founders.size(); ++i)
+            {
+                uint32 again = 0;
+                if (std::string const why = FounderNameProblem(founders[i], guildId, again); !why.empty())
+                    return finish({false, why, ""});
+                if (again != reuse[i])
+                    return finish({false, "name taken: " + founders[i].name, ""});
+            }
 
             std::vector<uint32> guids;
-            std::vector<std::string> names;
+            std::vector<std::string> made;  // made by this send
+            std::size_t nextAccount = 0;
             for (std::size_t i = 0; i < founders.size(); ++i)
             {
                 Founder const& f = founders[i];
-                std::string error;
-                uint32 const guid = CharacterMaker::Create(picked[i], f.name, f.race, f.cls, f.gender, error);
+                uint32 guid = reuse[i];
                 if (!guid)
                 {
-                    // Every check passed, so this is unexpected: stop, and say exactly what exists (preflight D26).
-                    LOG_ERROR("module.guildbridge", "create_founders {}: {}", orderId, error);
-                    return finish({false, "could not create " + f.name + ": " + error +
-                                              (names.empty() ? "" : " (made, not in the population: " +
-                                                                        JoinNames(names) + ")"),
-                                   ""});
+                    std::string error;
+                    guid = CharacterMaker::Create(picked[nextAccount++], f.name, f.race, f.cls, f.gender, error);
+                    if (!guid)
+                    {
+                        // Every check passed, so this is unexpected: stop, and say exactly what exists (preflight D26).
+                        LOG_ERROR("module.guildbridge", "create_founders {}: {}", orderId, error);
+                        return finish({false, "could not create " + f.name + ": " + error + FinishLater(made), ""});
+                    }
+                    made.push_back(f.name);
+                    if (cut && i)
+                        continue;  // test seam: the restart lands before this founder's profile is written
                 }
+                else
+                    LOG_INFO("module.guildbridge", "create_founders {}: taking back {} (made by an earlier send)",
+                             orderId, f.name);
                 guids.push_back(guid);
-                names.push_back(f.name);
+                // Durable at once (final review I1): a restart from here on cannot lose the founder.
+                WriteProfile(guid, guildId, f, orderId);
+                if (f.prof1)
+                    PlayerbotsAdapter::PresetProfessions(guid, f.prof1, f.prof2);
+            }
+            if (cut)
+            {
+                LOG_WARN("module.guildbridge", "create_founders {} test seam: stopping before the founders are finished "
+                         "until the worldserver restarts", orderId);
+                return;
             }
             WaitForRows(guids, [=](bool ok) {
                 if (!ok)
-                    return finish({false, "the founders' characters were not saved in time", ""});
+                    return finish({false, "the founders' characters were not saved in time" + FinishLater(made), ""});
                 FounderOrder pending;
                 pending.guildId = guildId;
                 pending.finish = finish;
                 for (std::size_t i = 0; i < founders.size(); ++i)
                 {
-                    Founder const& f = founders[i];
                     uint32 const guid = guids[i];
-                    // A population bot from now on (logged in and kept by playerbots); it waits guildless at login
-                    // and joins the guild as soon as it is in the world.
-                    PlayerbotsAdapter::AddToPopulation(guid, false);
-                    if (f.prof1)
-                        PlayerbotsAdapter::PresetProfessions(guid, f.prof1, f.prof2);
-                    GuildmasterPreparedStatement* stmt = GuildmasterDatabase.GetPreparedStatement(GM_REP_PROFILE);
-                    stmt->SetData(0, guid);
-                    stmt->SetData(1, guildId);
-                    stmt->SetData(2, std::string("founder"));
-                    stmt->SetData(3, f.traitsJson);
-                    stmt->SetData(4, f.backstory);
-                    stmt->SetData(5, orderId);
-                    stmt->SetData(6, Now());
-                    GuildmasterDatabase.Execute(stmt);
-                    unplaced.push_back({guid, guildId});
+                    JoinPopulation(guid);
+                    CharacterCacheEntry const* cache =
+                        sCharacterCache->GetCharacterCacheByGuid(ObjectGuid::Create<HighGuid::Player>(guid));
+                    if (!cache || cache->GuildId != guildId)
+                        Unplace(guid, guildId);
                     pending.guids.push_back(guid);
-                    pending.names.push_back(f.name);
+                    pending.names.push_back(founders[i].name);
                 }
                 founderOrders.push_back(std::move(pending));
             });

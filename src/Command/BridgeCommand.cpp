@@ -151,7 +151,8 @@ public:
              sub == "event" || sub == "test" || sub == "order" || sub == "state" || sub == "run" || sub == "stuck") &&
             !BridgeConfig::Get().enable)
         {
-            handler->PSendSysMessage("BRIDGEERR the bridge is disabled (GuildBridge.Enable = 0)");
+            std::string const& why = BridgeConfig::Get().disabledReason;
+            handler->PSendSysMessage("BRIDGEERR the bridge is disabled ({})", why.empty() ? "GuildBridge.Enable = 0" : why);
             return false;
         }
         if (sub == "snapshot" && words.size() > 1)

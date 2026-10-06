@@ -259,6 +259,45 @@ inline bool PickFounderAccounts(std::vector<std::pair<uint32_t, uint32_t>> const
         out.push_back(accounts[free[i].second].first);
     return true;
 }
+
+// Founders cut short (final review I1). create_founders writes each founder's bot_profiles row right after making its
+// character, and adds it to the population (the "add" record) once the character is in the database. A restart or a
+// late save can stop it in between; at the next boot each founder account character and each founder profile gets:
+enum class FounderBootAction : uint8_t
+{
+    Keep,             // finished (profile + "add" record), or a population bot without a profile: never touched
+    Adopt,            // profile, character, no "add" record: add it to the population; it joins its guild at login
+    DropProfile,      // profile but the character never reached the database: forget the profile
+    DeleteCharacter,  // a founder-account character with neither: made a moment before a restart; deleted, so its
+                      // name and account slot are free for the order sent again
+};
+
+inline FounderBootAction SettleFounderAtBoot(bool hasProfile, bool characterExists, bool hasAddRecord)
+{
+    if (!characterExists)
+        return FounderBootAction::DropProfile;
+    if (hasAddRecord)
+        return FounderBootAction::Keep;
+    return hasProfile ? FounderBootAction::Adopt : FounderBootAction::DeleteCharacter;
+}
+
+// A character that already has a founder's name (from the character cache and the bot_profiles rows).
+struct ExistingCharacter
+{
+    bool onFounderAccount = false;  // one of this world's GuildBridge.FounderAccounts
+    uint32_t guildId = 0;
+    uint8_t race = 0, cls = 0, gender = 0;
+    uint32_t profileGuild = 0;  // its founder profile's guild (0 = no profile)
+};
+
+// A create_founders sent again (after a restart or a "not saved in time") takes back the founders an earlier send
+// already made, instead of failing "name taken": same race and class (and gender, when the order names one), on a
+// founder account, guildless or already in this guild, with no profile or one for this guild.
+inline bool CanReuseFounder(ExistingCharacter const& e, Founder const& f, uint32_t targetGuild)
+{
+    return e.onFounderAccount && e.race == f.race && e.cls == f.cls && (f.gender > 1 || e.gender == f.gender) &&
+           (!e.guildId || e.guildId == targetGuild) && (!e.profileGuild || e.profileGuild == targetGuild);
+}
 }  // namespace GuildBridge
 
 #endif

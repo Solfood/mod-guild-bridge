@@ -163,5 +163,13 @@ int main()
     hero.heroic = "";
     CHECK_EQ(std::string(""), ParseOrder(hero, out));
     CHECK_TRUE(!out.heroic);
+
+    // Final review I2: the bridge needs one characters writer and one guildmaster writer (writes in order).
+    CHECK_EQ(std::string(""), WriterThreadsProblem(1, 1));
+    CHECK_EQ(std::string("CharacterDatabase.WorkerThreads is 2 (must be 1)"), WriterThreadsProblem(2, 1));
+    CHECK_EQ(std::string("GuildmasterDatabase.WorkerThreads is 0 (must be 1)"), WriterThreadsProblem(1, 0));
+    CHECK_EQ(std::string("CharacterDatabase.WorkerThreads is 4 (must be 1), GuildmasterDatabase.WorkerThreads is 2 "
+                         "(must be 1)"),
+             WriterThreadsProblem(4, 2));
     return UnitFailures();
 }

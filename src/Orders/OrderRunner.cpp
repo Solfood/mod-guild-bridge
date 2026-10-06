@@ -50,10 +50,11 @@ void OrderRunner::RecoverAtStartup()
 {
     GuildmasterDatabase.DirectExecute(Acore::StringFormat(
         "UPDATE orders SET status = 'failed', done_at = {}, result = CASE type "
-        "WHEN 'create_guild' THEN 'interrupted by a server restart: send create_guild again (a leader it already "
-        "made is used again)' "
-        "WHEN 'create_founders' THEN 'interrupted by a server restart: founders already made still join the guild "
-        "when they log in (bot_profiles has them)' "
+        "WHEN 'create_guild' THEN 'interrupted by a server restart: if guilds has no guild of that role yet, send "
+        "create_guild again (a leader it already made is used again)' "
+        "WHEN 'create_founders' THEN 'interrupted by a server restart: founders already made are finished at boot "
+        "and join the guild when they log in; send create_founders again for the rest (it takes back the ones "
+        "made)' "
         "ELSE 'interrupted by a server restart' END "
         "WHERE status = 'running' AND type NOT IN ('restore')",
         static_cast<uint32>(std::time(nullptr))));

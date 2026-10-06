@@ -135,5 +135,44 @@ int main()
     founders.foundersLength = "5";
     CHECK_EQ(std::string(""), ParseOrder(founders, p));
     CHECK_EQ(5u, p.founderCount);
+    // Test seam "cut" (final review I1): stop between making the founders and finishing them, like a restart.
+    founders.testFail = "cut";
+    CHECK_EQ(std::string(""), ParseOrder(founders, p));
+    CHECK_EQ(std::string("cut"), p.testFail);
+    founders.testFail = "crash";
+    CHECK_EQ(std::string("bad value for test_fail"), ParseOrder(founders, p));
+
+    // Founders a restart (or a late save) cut short (final review I1): what a boot does with each.
+    CHECK_TRUE(SettleFounderAtBoot(true, true, true) == FounderBootAction::Keep);        // made and finished
+    CHECK_TRUE(SettleFounderAtBoot(true, true, false) == FounderBootAction::Adopt);      // made, never added
+    CHECK_TRUE(SettleFounderAtBoot(true, false, false) == FounderBootAction::DropProfile);  // never saved
+    CHECK_TRUE(SettleFounderAtBoot(true, false, true) == FounderBootAction::DropProfile);
+    CHECK_TRUE(SettleFounderAtBoot(false, true, false) == FounderBootAction::DeleteCharacter);  // no record at all
+    CHECK_TRUE(SettleFounderAtBoot(false, true, true) == FounderBootAction::Keep);  // a population bot: never deleted
+
+    // A resent create_founders takes back its own half-made founders instead of failing "name taken".
+    Founder want = out[0];  // Tfounda: Orc (2) warrior (1), gender random
+    ExistingCharacter mine{true, 0, 2, 1, 0, 0};
+    CHECK_TRUE(CanReuseFounder(mine, want, 7));
+    mine.profileGuild = 7;  // made by an earlier order for this guild
+    CHECK_TRUE(CanReuseFounder(mine, want, 7));
+    mine.guildId = 7;  // already joined
+    CHECK_TRUE(CanReuseFounder(mine, want, 7));
+    CHECK_TRUE(!CanReuseFounder(mine, want, 8));  // another guild's founder
+    ExistingCharacter other = {false, 0, 2, 1, 0, 0};  // not on a founder account: a real name clash
+    CHECK_TRUE(!CanReuseFounder(other, want, 7));
+    other = {true, 9, 2, 1, 0, 0};  // in some other guild
+    CHECK_TRUE(!CanReuseFounder(other, want, 7));
+    other = {true, 0, 2, 3, 0, 0};  // another class
+    CHECK_TRUE(!CanReuseFounder(other, want, 7));
+    other = {true, 0, 5, 1, 0, 0};  // another race
+    CHECK_TRUE(!CanReuseFounder(other, want, 7));
+    other = {true, 0, 2, 1, 1, 0};  // female; the order asks for any gender
+    CHECK_TRUE(CanReuseFounder(other, want, 7));
+    want.gender = 0;  // the order asks for a male
+    CHECK_TRUE(!CanReuseFounder(other, want, 7));
+    other = {true, 0, 2, 1, 0, 8};  // profile of another guild
+    want.gender = 2;
+    CHECK_TRUE(!CanReuseFounder(other, want, 7));
     return UnitFailures();
 }

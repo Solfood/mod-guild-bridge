@@ -145,8 +145,6 @@ void DungeonRunMgr::Begin(ParsedOrder const& order, std::function<void(OrderResu
     auto run = std::make_unique<Run>();
     if (!EntranceFor(info.mapId, run->entrance))
         return finish({false, "no outdoor entrance known for this dungeon", ""});
-    if (_runs.size() >= _maxRuns)
-        return finish({false, "too many dungeon runs in progress (max " + std::to_string(_maxRuns) + ")", ""});
 
     // Every check before anyone is touched. Membership comes from the character cache, so a non-member is named
     // as such even when it is offline. Busy order (preflight D10): run -> restore -> held -> raising.
@@ -236,9 +234,13 @@ void DungeonRunMgr::Begin(ParsedOrder const& order, std::function<void(OrderResu
 
     run->choice = ChooseApproach(spots, run->entrance, cfg.runTravelMaxDistance, order.approach);
     run->approachName = run->choice.approach == Approach::Travel ? "travel" : "teleport";
+    // A dry run answers for the party (final review M6: Plan 3's notice board asks "would this work?"); the cap is a
+    // "not now", checked for real runs only.
     if (order.dryRun)
         return finish({true, "dry run: would run " + info.name + " by " + run->approachName,
                        JsonObject().Str("approach", run->approachName).Raw("warnings", run->warningsJson).Build()});
+    if (_runs.size() >= _maxRuns)
+        return finish({false, "too many dungeon runs in progress (max " + std::to_string(_maxRuns) + ")", ""});
 
     run->id = order.id;
     run->token = info.token;

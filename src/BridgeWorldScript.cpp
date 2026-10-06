@@ -30,11 +30,26 @@ public:
     {
     }
 
-    void OnAfterConfigLoad(bool /*reload*/) override { BridgeConfig::Get().Load(); }
+    // Startup only (final review M1): `.reload config` would rewrite settings the map threads read, and turning the
+    // bridge off at run time would freeze every run and restore with its bots held and stop the heartbeat.
+    void OnAfterConfigLoad(bool reload) override
+    {
+        if (reload)
+        {
+            LOG_INFO("module.guildbridge", "GUILDBRIDGE settings are read at startup only: restart the worldserver to "
+                     "change them");
+            return;
+        }
+        BridgeConfig::Get().Load();
+    }
 
     void OnStartup() override
     {
         LOG_INFO("module.guildbridge", "GUILDBRIDGE loaded (enabled={})", BridgeConfig::Get().enable ? 1 : 0);
+        if (!BridgeConfig::Get().disabledReason.empty())
+            LOG_ERROR("module.guildbridge", "GUILDBRIDGE disabled: {}. The bridge needs one async writer per pool "
+                      "(restores, snapshots and orders read back their own writes); set both to 1 and restart",
+                      BridgeConfig::Get().disabledReason);
         if (!BridgeConfig::Get().enable)
             return;
         GuildRegistry::Instance().LoadAtStartup();  // first: everything after it may ask for guild roles

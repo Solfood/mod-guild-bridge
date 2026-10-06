@@ -22,7 +22,9 @@ GuildmasterDatabaseInfo = "127.0.0.1;3306;acore;acore;guildmaster"
 
 #    GuildmasterDatabase.WorkerThreads / GuildmasterDatabase.SynchThreads
 #        Description: Async writer threads and sync connections for the guildmaster pool. Keep WorkerThreads
-#                     at 1: the bridge relies on its writes being applied in order.
+#                     at 1: the bridge relies on its writes being applied in order. The same holds for the
+#                     core's CharacterDatabase.WorkerThreads (worldserver.conf). With either above 1 the bridge
+#                     stays off and logs "GUILDBRIDGE disabled: ..." (the world still runs, without the bridge).
 #        Default:     1 / 1
 
 GuildmasterDatabase.WorkerThreads = 1

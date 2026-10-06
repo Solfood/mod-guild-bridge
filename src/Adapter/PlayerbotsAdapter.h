@@ -9,6 +9,7 @@
 #include "ObjectGuid.h"
 #include "TravelRules.h"
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 class Player;
@@ -41,6 +42,9 @@ void AddToPopulation(uint32 guid, bool joinsBotGuild);
 void SetJoinsBotGuild(uint32 guid, bool joins);
 bool JoinsBotGuild(uint32 guid);        // false while a founder waits for the bridge to place it (fork event value)
 uint32 PopulationSize();                // fork PopulationSize: bots with an "add" record (held ones included)
+// Startup only (a sync read of the playerbots database, as the fork's own GetBots makes): which of `guids` have a
+// live "add" record. The fork's in-memory population is not loaded yet at OnStartup (its first update does that).
+std::unordered_set<uint32> WithPopulationRecord(std::vector<uint32> const& guids);
 uint32 PopulationOnline();              // population bots in the world with a bot brain (no clones; preflight D22)
 void SetRaisingsUserGuild(uint32 guildId);  // world thread: the fork's raisings cap the user's guild per wave
 uint32 RaisingsUserGuild();

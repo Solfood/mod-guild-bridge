@@ -5,6 +5,7 @@
 #include "BridgeConfig.h"
 
 #include "Config.h"
+#include "OrderRules.h"
 #include <algorithm>
 #include <cctype>
 
@@ -17,6 +18,13 @@ BridgeConfig& BridgeConfig::Get()
 void BridgeConfig::Load()
 {
     enable = sConfigMgr->GetOption<bool>("GuildBridge.Enable", true);
+    // Restores, snapshots and the order runner read back what they just wrote on the same pool and trust the answer:
+    // true only with one async writer per pool. Any other setting keeps the bridge off (the world still runs).
+    disabledReason = GuildBridge::WriterThreadsProblem(
+        sConfigMgr->GetOption<uint32>("CharacterDatabase.WorkerThreads", 1),
+        sConfigMgr->GetOption<uint32>("GuildmasterDatabase.WorkerThreads", 1));
+    if (!disabledReason.empty())
+        enable = false;
     worldId = sConfigMgr->GetOption<std::string>("GuildBridge.WorldId", "w1");
     charactersDb = DatabaseNameOf(sConfigMgr->GetOption<std::string>("CharacterDatabaseInfo", ""));
     playerbotsDb = DatabaseNameOf(sConfigMgr->GetOption<std::string>("PlayerbotsDatabaseInfo", ""));

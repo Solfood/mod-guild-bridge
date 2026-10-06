@@ -67,7 +67,8 @@ struct ParsedOrder
     uint64_t snapshotId = 0;
     uint32_t takenBefore = 0;
     bool dryRun = false;
-    // Test seams only: "load", "crash", "purge_timeout", "delete_fail" (restore), "entrance", "dcfail" (run_dungeon).
+    // Test seams only: "load", "crash", "purge_timeout", "delete_fail" (restore), "entrance", "dcfail" (run_dungeon),
+    // "cut" (create_founders).
     std::string testFail;
     // create_guild / create_founders (spec §2b)
     std::string faction, guildName, leaderName, role;
@@ -120,6 +121,20 @@ inline OrderType OrderTypeFromName(std::string const& name)
     if (name == "create_guild") return OrderType::CreateGuild;
     if (name == "create_founders") return OrderType::CreateFounders;
     return OrderType::Unknown;
+}
+
+// Final review I2: restores, snapshots and the order runner read back what they just wrote and trust the answer,
+// which holds only with one async writer per pool. "" when CharacterDatabase.WorkerThreads and
+// GuildmasterDatabase.WorkerThreads are both 1; else what is wrong (the bridge then stays off).
+inline std::string WriterThreadsProblem(uint32_t characters, uint32_t guildmaster)
+{
+    std::string out;
+    if (characters != 1)
+        out = "CharacterDatabase.WorkerThreads is " + std::to_string(characters) + " (must be 1)";
+    if (guildmaster != 1)
+        out += (out.empty() ? "" : ", ") + std::string("GuildmasterDatabase.WorkerThreads is ") +
+               std::to_string(guildmaster) + " (must be 1)";
+    return out;
 }
 
 // "" when the order is well-formed; else the failure reason (contract §4 prefixes).
@@ -287,6 +302,10 @@ inline std::string ParseOrder(OrderRow const& row, ParsedOrder& out)
             if (!ParseUInt(row.foundersLength, 5, value) || !value)
                 return "bad value for founders (1 to 5)";
             out.founderCount = static_cast<uint32_t>(value);
+            // Test seam (test guild only, checked by the order): "cut" stops between making the founders and
+            // finishing them, as a restart would (final review I1). Anything else fails the order.
+            if (!row.testFail.empty() && row.testFail != "cut")
+                return "bad value for test_fail";
             return "";  // each founder is read and checked by NewGameOrders (JSON_TABLE + ParseFounders)
         case OrderType::Restore:
             // Test seams (test-guild bots only, checked by the restore): "load" (the chosen dump fails to load),

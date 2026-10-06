@@ -9,13 +9,17 @@
 #include <string>
 #include <vector>
 
-// Every GuildBridge.* option, read once at startup (a change needs a worldserver restart).
+// Every GuildBridge.* option, read once at startup (a change needs a worldserver restart; `.reload config` leaves
+// these as they are).
 struct BridgeConfig
 {
     static BridgeConfig& Get();
     void Load();
 
     bool enable = true;
+    // Why the bridge is off although GuildBridge.Enable = 1 ("" = it is not): a pool with more than one async writer
+    // (final review I2, WriterThreadsProblem).
+    std::string disabledReason;
     std::string worldId;       // GuildBridge.WorldId: this world's id, stamped into world_status
     std::string charactersDb;  // database names of THIS world, from the core's *DatabaseInfo strings
     std::string playerbotsDb;
