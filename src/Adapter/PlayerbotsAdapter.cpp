@@ -113,6 +113,25 @@ std::unordered_set<uint32> PlayerbotsAdapter::WithPopulationRecord(std::vector<u
     return out;
 }
 
+std::unordered_set<uint32> PlayerbotsAdapter::InRaisings(std::vector<uint32> const& guids)
+{
+    std::unordered_set<uint32> const wanted(guids.begin(), guids.end());
+    std::unordered_set<uint32> out;
+    if (guids.empty())
+        return out;
+    std::string in;
+    for (uint32 guid : guids)
+        in += (in.empty() ? "" : ",") + std::to_string(guid);
+    if (QueryResult result = PlayerbotsDatabase.Query("SELECT old_guid, new_guid FROM playerbots_raisings WHERE "
+                                                      "old_guid IN (" + in + ") OR new_guid IN (" + in + ")"))
+        do
+            for (int i = 0; i < 2; ++i)
+                if (uint32 const guid = (*result)[i].Get<uint32>(); wanted.count(guid))
+                    out.insert(guid);
+        while (result->NextRow());
+    return out;
+}
+
 uint32 PlayerbotsAdapter::PopulationOnline()
 {
     uint32 online = 0;

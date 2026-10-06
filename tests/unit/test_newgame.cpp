@@ -142,13 +142,42 @@ int main()
     founders.testFail = "crash";
     CHECK_EQ(std::string("bad value for test_fail"), ParseOrder(founders, p));
 
-    // Founders a restart (or a late save) cut short (final review I1): what a boot does with each.
-    CHECK_TRUE(SettleFounderAtBoot(true, true, true) == FounderBootAction::Keep);        // made and finished
-    CHECK_TRUE(SettleFounderAtBoot(true, true, false) == FounderBootAction::Adopt);      // made, never added
-    CHECK_TRUE(SettleFounderAtBoot(true, false, false) == FounderBootAction::DropProfile);  // never saved
-    CHECK_TRUE(SettleFounderAtBoot(true, false, true) == FounderBootAction::DropProfile);
-    CHECK_TRUE(SettleFounderAtBoot(false, true, false) == FounderBootAction::DeleteCharacter);  // no record at all
-    CHECK_TRUE(SettleFounderAtBoot(false, true, true) == FounderBootAction::Keep);  // a population bot: never deleted
+    // Founders a restart cut short (final review I1, narrowed by N1): only a cut order's own founders are settled.
+    auto settle = [](bool profile, bool exists, bool add, bool cutOrder, bool raising = false, bool restoring = false) {
+        FounderBootFacts f;
+        f.hasProfile = profile;
+        f.characterExists = exists;
+        f.hasAddRecord = add;
+        f.fromCutOrder = cutOrder;
+        f.raising = raising;
+        f.restoring = restoring;
+        return SettleFounderAtBoot(f);
+    };
+    CHECK_TRUE(settle(true, true, true, false) == FounderBootAction::Keep);          // made and finished
+    CHECK_TRUE(settle(true, true, true, true) == FounderBootAction::Keep);
+    CHECK_TRUE(settle(true, true, false, true) == FounderBootAction::Adopt);         // cut order: made, never added
+    CHECK_TRUE(settle(true, false, false, true) == FounderBootAction::DropProfile);  // cut order: never saved
+    CHECK_TRUE(settle(false, true, false, true) == FounderBootAction::DeleteCharacter);  // cut before its profile
+    CHECK_TRUE(settle(false, true, true, true) == FounderBootAction::Leave);  // a population bot: never deleted
+    // Re-review N1, the five states that must never be deleted, dropped or adopted:
+    // (a) a raised founder: its profile stays on the retired guid (legend), unlinked or gone from the cache.
+    CHECK_TRUE(settle(true, false, false, false, true) == FounderBootAction::Leave);
+    CHECK_TRUE(settle(true, true, false, false, true) == FounderBootAction::Leave);
+    // (b) a founder cut mid-restore after its delete: the recovery brings it back.
+    CHECK_TRUE(settle(true, false, false, false, false, true) == FounderBootAction::Leave);
+    // (c) a restore that came back under another guid: no profile, no add record, on the founder account.
+    CHECK_TRUE(settle(false, true, false, false) == FounderBootAction::Leave);
+    // (d) a raising's new death knight before its add record lands.
+    CHECK_TRUE(settle(false, true, false, false, true) == FounderBootAction::Leave);
+    // (e) a founder in raising state logout (add record already removed).
+    CHECK_TRUE(settle(true, true, false, false, true) == FounderBootAction::Leave);
+    // ... and the same even when a cut order names it.
+    CHECK_TRUE(settle(true, false, false, true, true) == FounderBootAction::Leave);
+    CHECK_TRUE(settle(true, false, false, true, false, true) == FounderBootAction::Leave);
+    CHECK_TRUE(settle(false, true, false, true, true) == FounderBootAction::Leave);
+    CHECK_TRUE(settle(true, true, false, true, true) == FounderBootAction::Leave);
+    // A late save after a "not saved in time" failure (order not running at boot): left for the order sent again.
+    CHECK_TRUE(settle(true, true, false, false) == FounderBootAction::Leave);
 
     // A resent create_founders takes back its own half-made founders instead of failing "name taken".
     Founder want = out[0];  // Tfounda: Orc (2) warrior (1), gender random

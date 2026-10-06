@@ -45,6 +45,8 @@ uint32 PopulationSize();                // fork PopulationSize: bots with an "ad
 // Startup only (a sync read of the playerbots database, as the fork's own GetBots makes): which of `guids` have a
 // live "add" record. The fork's in-memory population is not loaded yet at OnStartup (its first update does that).
 std::unordered_set<uint32> WithPopulationRecord(std::vector<uint32> const& guids);
+// Startup only (sync): which of `guids` appear in the fork's raisings table (old or new guid, any state).
+std::unordered_set<uint32> InRaisings(std::vector<uint32> const& guids);
 uint32 PopulationOnline();              // population bots in the world with a bot brain (no clones; preflight D22)
 void SetRaisingsUserGuild(uint32 guildId);  // world thread: the fork's raisings cap the user's guild per wave
 uint32 RaisingsUserGuild();

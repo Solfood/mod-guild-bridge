@@ -57,10 +57,11 @@ public:
         BotDumps::Instance().Start();
         RestoreMgr::Instance().RecoverAtStartup();  // first: it decides what happens to cut restores
         DungeonRunMgr::Instance().LoadAtStartup();  // entrances; runs cut by the restart end as abandoned
+        NewGameOrders::NoteCutOrders();  // before the runner fails the create_founders orders a restart cut
         OrderRunner::Instance().RecoverAtStartup();
         StateWriter::Instance().LoadFocusAtStartup();
         StuckDetector::Instance().CloseAllAtStartup();
-        NewGameOrders::LoadAtStartup();  // founders a restart left outside their guild
+        NewGameOrders::LoadAtStartup();  // after restore recovery: founders a restart cut short or left guildless
         WorldStatus::Instance().WriteNow();
     }
 

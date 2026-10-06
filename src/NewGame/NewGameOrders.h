@@ -14,14 +14,16 @@
 // guild once it has logged in (an offline Guild::AddMember is a sync query, D7); until then it waits guildless
 // (fork "no_bot_guild"), across restarts too: LoadAtStartup finds the founders not placed yet.
 // Restarts (final review I1): each founder's bot_profiles row is written right after its character is made, so a
-// restart (or a late save) between making and finishing loses nothing: LoadAtStartup adds a profiled founder with no
-// "add" record to the population, drops a profile whose character never reached the database, and deletes a
-// founder-account character with neither profile nor "add" record; a create_founders sent again takes back the
-// founders an earlier send made (no "name taken").
+// restart between making and finishing loses nothing. For the founders of a create_founders order the boot finds
+// running (and only those; never a guid in a raising or a restore, re-review N1), LoadAtStartup adds a profiled
+// founder with no "add" record to the population, drops a profile whose character never reached the database, and
+// deletes a character with neither profile nor "add" record. A create_founders sent again takes back the founders
+// an earlier send made (no "name taken"); that is also how a "not saved in time" failure is finished.
 namespace NewGameOrders
 {
 using Finish = std::function<void(OrderResult const&)>;
-void LoadAtStartup();  // OnStartup, after GuildRegistry (sync reads and the startup deletes allowed there)
+void NoteCutOrders();  // OnStartup, before OrderRunner::RecoverAtStartup: create_founders orders a restart cut
+void LoadAtStartup();  // OnStartup, after RestoreMgr::RecoverAtStartup (sync reads and the startup deletes allowed)
 void CreateGuild(GuildBridge::ParsedOrder const& order, Finish finish);
 void CreateFounders(GuildBridge::ParsedOrder const& order, Finish finish);
 void Update(uint32 diff);  // waits for new characters to reach the database; places logged-in founders

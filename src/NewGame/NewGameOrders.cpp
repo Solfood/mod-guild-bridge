@@ -21,6 +21,7 @@
 #include "ObjectMgr.h"
 #include "Player.h"
 #include "PlayerbotsAdapter.h"
+#include "RestoreMgr.h"
 #include "QueryCallback.h"
 #include "StringFormat.h"
 #include "World.h"
@@ -80,6 +81,9 @@ std::unordered_map<uint32, uint32> founderProfiles;
 // records only while its set is empty, so nothing may be added before that).
 std::vector<uint32> toAdd;
 uint32 addWaitMs = 0;
+// create_founders orders still running when the server went down (read before the order runner fails them):
+// order id -> the founder names it was making. Only their founders are settled at boot (re-review N1).
+std::unordered_map<uint64, std::vector<std::string>> cutOrders;
 
 uint32 Now() { return static_cast<uint32>(std::time(nullptr)); }
 
@@ -170,8 +174,7 @@ std::string JoinNames(std::vector<std::string> const& names)
 std::string FinishLater(std::vector<std::string> const& made)
 {
     return made.empty() ? ""
-                        : " (made: " + JoinNames(made) +
-                              "; they are finished at the next restart, or send the order again)";
+                        : " (made: " + JoinNames(made) + "; send the order again to finish them)";
 }
 
 bool IsPlaced(uint32 guid)
@@ -307,6 +310,26 @@ void UpdatePlacements(uint32 diff)
 }
 }  // namespace
 
+void NewGameOrders::NoteCutOrders()
+{
+    cutOrders.clear();
+    if (!GuildmasterDatabaseReady)
+        return;
+    // Startup only (sync), before OrderRunner::RecoverAtStartup fails them as interrupted.
+    if (QueryResult result = GuildmasterDatabase.Query(
+            "SELECT id, IFNULL(CAST(JSON_EXTRACT(params, '$.founders[*].name') AS CHAR), '[]') FROM orders "
+            "WHERE status = 'running' AND type = 'create_founders'"))
+        do
+        {
+            std::vector<std::string> raw, names;
+            ParseStringArray((*result)[1].Get<std::string>(), raw);
+            for (std::string const& name : raw)
+                if (std::string const normal = NormalizeName(name); !normal.empty())
+                    names.push_back(normal);
+            cutOrders[(*result)[0].Get<uint64>()] = std::move(names);
+        } while (result->NextRow());
+}
+
 void NewGameOrders::LoadAtStartup()
 {
     unplaced.clear();
@@ -315,85 +338,120 @@ void NewGameOrders::LoadAtStartup()
     addWaitMs = 0;
     if (!GuildmasterDatabaseReady)
         return;
-    // Startup only (sync). Founder profiles, the characters on this world's founder accounts, and which of them have
-    // an "add" record: every founder a restart or a late save cut short is finished or cleaned up here (final review
-    // I1, SettleFounderAtBoot). The fork's "no_bot_guild" value says which finished founders still wait for their
-    // guild; a founder placed and later removed by the player is not put back.
-    std::vector<std::pair<uint32, uint32>> profiles;  // guid, guild
-    if (QueryResult result =
-            GuildmasterDatabase.Query("SELECT guid, guild_id FROM bot_profiles WHERE origin = 'founder'"))
+    // Startup only (sync), after restore recovery has queued its jobs (RestoreMgr::RecoverAtStartup). Founder
+    // profiles, the characters on this world's founder accounts, their "add" records and raisings: the founders of a
+    // create_founders order the boot found running are finished or cleaned up (final review I1); everything else that
+    // looks unfinished (a raised founder, a restore, a raising's new death knight, a late save) only gets a warning
+    // (re-review N1, SettleFounderAtBoot). The fork's "no_bot_guild" value says which finished founders still wait
+    // for their guild; a founder placed and later removed by the player is not put back.
+    struct Profile
+    {
+        uint32 guid, guildId;
+        uint64 orderId;
+    };
+    std::vector<Profile> profiles;
+    if (QueryResult result = GuildmasterDatabase.Query(
+            "SELECT guid, guild_id, IFNULL(order_id, 0) FROM bot_profiles WHERE origin = 'founder'"))
         do
-            profiles.emplace_back((*result)[0].Get<uint32>(), (*result)[1].Get<uint32>());
+            profiles.push_back({(*result)[0].Get<uint32>(), (*result)[1].Get<uint32>(), (*result)[2].Get<uint64>()});
         while (result->NextRow());
-    std::vector<std::pair<uint32, uint32>> onAccounts;  // guid, account
+    struct OnAccount
+    {
+        uint32 guid, account;
+        std::string name;
+    };
+    std::vector<OnAccount> onAccounts;
     std::vector<uint32> const accounts = GuildRegistry::Instance().FounderAccounts();
     if (!accounts.empty())
     {
         std::string in;
         for (uint32 account : accounts)
             in += (in.empty() ? "" : ",") + std::to_string(account);
-        if (QueryResult result = CharacterDatabase.Query("SELECT guid, account FROM characters WHERE account IN (" +
-                                                         in + ")"))
+        if (QueryResult result = CharacterDatabase.Query(
+                "SELECT guid, account, name FROM characters WHERE account IN (" + in + ")"))
             do
-                onAccounts.emplace_back((*result)[0].Get<uint32>(), (*result)[1].Get<uint32>());
+                onAccounts.push_back({(*result)[0].Get<uint32>(), (*result)[1].Get<uint32>(),
+                                      (*result)[2].Get<std::string>()});
             while (result->NextRow());
     }
     std::vector<uint32> guids;
-    for (auto const& [guid, guildId] : profiles)
-        guids.push_back(guid);
-    for (auto const& [guid, account] : onAccounts)
-        guids.push_back(guid);
+    for (Profile const& p : profiles)
+        guids.push_back(p.guid);
+    for (OnAccount const& c : onAccounts)
+        guids.push_back(c.guid);
     std::unordered_set<uint32> const added = PlayerbotsAdapter::WithPopulationRecord(guids);
+    std::unordered_set<uint32> const raised = PlayerbotsAdapter::InRaisings(guids);
+    std::unordered_set<std::string> cutNames;
+    for (auto const& [orderId, names] : cutOrders)
+        cutNames.insert(names.begin(), names.end());
+    auto facts = [&](uint32 guid, bool hasProfile, bool exists, bool fromCut) {
+        FounderBootFacts f;
+        f.hasProfile = hasProfile;
+        f.characterExists = exists;
+        f.hasAddRecord = added.count(guid) != 0;
+        f.fromCutOrder = fromCut;
+        f.raising = raised.count(guid) != 0;
+        f.restoring = RestoreMgr::Instance().IsRestoring(guid);
+        return f;
+    };
 
-    for (auto const& [guid, guildId] : profiles)
+    for (Profile const& p : profiles)
     {
+        uint32 const guid = p.guid;
         CharacterCacheEntry const* cache =
             sCharacterCache->GetCharacterCacheByGuid(ObjectGuid::Create<HighGuid::Player>(guid));
-        switch (SettleFounderAtBoot(true, cache != nullptr, added.count(guid) != 0))
+        founderProfiles[guid] = p.guildId;  // a raised founder's profile follows its legend: always kept
+        switch (SettleFounderAtBoot(facts(guid, true, cache != nullptr, cutOrders.count(p.orderId) != 0)))
         {
             case FounderBootAction::DropProfile:
-                // Its character never reached the database. The guid may be handed out again: forget the profile
-                // and the profession preset made for it.
+                // Its cut order's character never reached the database. The guid may be handed out again: forget
+                // the profile and the profession preset made for it.
+                founderProfiles.erase(guid);
                 GuildmasterDatabase.Execute(Acore::StringFormat(
                     "DELETE FROM bot_profiles WHERE guid = {} AND origin = 'founder'", guid));
                 PlayerbotsAdapter::PresetProfessions(guid, 0, 0);
-                LOG_WARN("module.guildbridge", "GUILDBRIDGE founder guid {} was never saved: profile removed", guid);
+                LOG_WARN("module.guildbridge", "GUILDBRIDGE founder guid {} of cut order {} was never saved: profile "
+                         "removed", guid, p.orderId);
                 break;
             case FounderBootAction::Adopt:
-                founderProfiles[guid] = guildId;
                 PlayerbotsAdapter::LoadStoredValues(guid);  // keeps its profession preset visible after the add
                 toAdd.push_back(guid);  // added once the population is loaded (Update)
                 if (!cache->GuildId)
-                    unplaced.push_back({guid, guildId});
+                    unplaced.push_back({guid, p.guildId});
                 LOG_WARN("module.guildbridge", "GUILDBRIDGE founder {} was made but not finished: added to the population "
-                         "and placed in guild {} once it logs in", cache->Name, guildId);
+                         "and placed in guild {} once it logs in", cache->Name, p.guildId);
+                break;
+            case FounderBootAction::Keep:
+                if (cache && !cache->GuildId && !PlayerbotsAdapter::JoinsBotGuild(guid))
+                    unplaced.push_back({guid, p.guildId});
                 break;
             default:
-                founderProfiles[guid] = guildId;
-                if (!cache->GuildId && !PlayerbotsAdapter::JoinsBotGuild(guid))
-                    unplaced.push_back({guid, guildId});
+                LOG_WARN("module.guildbridge", "GUILDBRIDGE founder guid {} looks unfinished (character {}, add record "
+                         "{}, raising {}, restoring {}); not from a cut create_founders order, so it is left as it is",
+                         guid, cache ? 1 : 0, added.count(guid) ? 1 : 0, raised.count(guid) ? 1 : 0,
+                         RestoreMgr::Instance().IsRestoring(guid) ? 1 : 0);
                 break;
         }
     }
-    for (auto const& [guid, account] : onAccounts)
+    for (OnAccount const& c : onAccounts)
     {
-        if (founderProfiles.count(guid))
+        if (std::any_of(profiles.begin(), profiles.end(), [&c](Profile const& p) { return p.guid == c.guid; }))
             continue;
-        CharacterCacheEntry const* cache =
-            sCharacterCache->GetCharacterCacheByGuid(ObjectGuid::Create<HighGuid::Player>(guid));
-        std::string const name = cache ? cache->Name : std::to_string(guid);
-        if (SettleFounderAtBoot(false, true, added.count(guid) != 0) == FounderBootAction::DeleteCharacter)
+        FounderBootAction const action = SettleFounderAtBoot(facts(c.guid, false, true, cutNames.count(c.name) != 0));
+        if (action == FounderBootAction::DeleteCharacter)
         {
-            // Made a moment before a restart, before its profile was written: nothing knows it. Delete it, so its
-            // name and its account slot are free for the order sent again. DeleteFromDB makes a few sync reads
-            // (startup only, D7).
-            Player::DeleteFromDB(guid, account, false, true);
-            LOG_WARN("module.guildbridge", "GUILDBRIDGE founder account character {} (guid {}) had no founder profile "
-                     "and was never added to the population: deleted", name, guid);
+            // Made by a cut create_founders order a moment before the restart, before its profile was written.
+            // Delete it (and the playerbots values a guid reuse would inherit), so its name and its account slot are
+            // free for the order sent again. DeleteFromDB makes a few sync reads (startup only, D7).
+            PlayerbotsAdapter::PresetProfessions(c.guid, 0, 0);
+            PlayerbotsAdapter::SetJoinsBotGuild(c.guid, true);
+            Player::DeleteFromDB(c.guid, c.account, false, true);
+            LOG_WARN("module.guildbridge", "GUILDBRIDGE founder account character {} (guid {}) of a cut create_founders "
+                     "order had no founder profile and was never added to the population: deleted", c.name, c.guid);
         }
-        else
-            LOG_WARN("module.guildbridge", "GUILDBRIDGE founder account character {} (guid {}) has no founder profile; "
-                     "it is a population bot, so it is left alone", name, guid);
+        else if (action != FounderBootAction::Keep && !added.count(c.guid))
+            LOG_WARN("module.guildbridge", "GUILDBRIDGE founder account character {} (guid {}) has no founder profile "
+                     "and no add record; not from a cut create_founders order, so it is left as it is", c.name, c.guid);
     }
     if (!unplaced.empty())
         LOG_INFO("module.guildbridge", "GUILDBRIDGE {} founder(s) still to be placed in their guild", unplaced.size());

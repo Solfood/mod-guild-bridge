@@ -260,25 +260,42 @@ inline bool PickFounderAccounts(std::vector<std::pair<uint32_t, uint32_t>> const
     return true;
 }
 
-// Founders cut short (final review I1). create_founders writes each founder's bot_profiles row right after making its
-// character, and adds it to the population (the "add" record) once the character is in the database. A restart or a
-// late save can stop it in between; at the next boot each founder account character and each founder profile gets:
+// Founders cut short (final review I1, narrowed by re-review N1). create_founders writes each founder's bot_profiles
+// row right after making its character, and adds it to the population (the "add" record) once the character is in
+// the database. A restart can stop it in between. At the next boot only the founders of a create_founders order that
+// was still running (the boot fails it as interrupted) are settled; nothing else is ever deleted or dropped.
 enum class FounderBootAction : uint8_t
 {
-    Keep,             // finished (profile + "add" record), or a population bot without a profile: never touched
+    Keep,             // finished (profile + "add" record): placed as usual if it still waits for its guild
+    Leave,            // looks unfinished but is not a cut order's own founder (raised, restored, ...): a warning only
     Adopt,            // profile, character, no "add" record: add it to the population; it joins its guild at login
     DropProfile,      // profile but the character never reached the database: forget the profile
-    DeleteCharacter,  // a founder-account character with neither: made a moment before a restart; deleted, so its
-                      // name and account slot are free for the order sent again
+    DeleteCharacter,  // a cut order's character with neither profile nor "add" record (made a moment before the
+                      // restart): deleted, so its name and account slot are free for the order sent again
 };
 
-inline FounderBootAction SettleFounderAtBoot(bool hasProfile, bool characterExists, bool hasAddRecord)
+struct FounderBootFacts
 {
-    if (!characterExists)
-        return FounderBootAction::DropProfile;
-    if (hasAddRecord)
+    bool hasProfile = false;
+    bool characterExists = false;
+    bool hasAddRecord = false;
+    bool fromCutOrder = false;  // profiled by, or named in, a create_founders order the boot fails as interrupted
+    bool raising = false;       // has a playerbots_raisings row (old or new guid), finished or not
+    bool restoring = false;     // in the restore recovery the boot queued
+};
+
+inline FounderBootAction SettleFounderAtBoot(FounderBootFacts const& f)
+{
+    bool const finished = f.hasProfile && f.characterExists && f.hasAddRecord;
+    if (finished)
         return FounderBootAction::Keep;
-    return hasProfile ? FounderBootAction::Adopt : FounderBootAction::DeleteCharacter;
+    if (!f.fromCutOrder || f.raising || f.restoring)
+        return FounderBootAction::Leave;
+    if (!f.characterExists)
+        return FounderBootAction::DropProfile;
+    if (f.hasAddRecord)
+        return FounderBootAction::Leave;  // a population bot without a profile: never touched
+    return f.hasProfile ? FounderBootAction::Adopt : FounderBootAction::DeleteCharacter;
 }
 
 // A character that already has a founder's name (from the character cache and the bot_profiles rows).
