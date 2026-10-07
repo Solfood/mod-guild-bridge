@@ -8,6 +8,7 @@
 #include "DungeonRunMgr.h"
 #include "EventSink.h"
 #include "Firsts.h"
+#include "GuildmasterDatabase.h"
 #include "GuildRegistry.h"
 #include "Log.h"
 #include "NewGameOrders.h"
@@ -51,6 +52,8 @@ public:
                       "(restores, snapshots and orders read back their own writes); set both to 1 and restart",
                       BridgeConfig::Get().disabledReason);
         if (!BridgeConfig::Get().enable)
+            return;
+        if (!GuildmasterDatabaseReady)  // a fresh world whose legends view failed: the world is already stopping
             return;
         GuildRegistry::Instance().LoadAtStartup();  // first: everything after it may ask for guild roles
         Firsts::Instance().LoadAtStartup();

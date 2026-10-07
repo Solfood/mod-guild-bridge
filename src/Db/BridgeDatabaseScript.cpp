@@ -8,20 +8,25 @@
 #include "DBUpdater.h"
 #include "DatabaseScript.h"
 #include "GuildmasterDatabase.h"
+#include "LegendsTiming.h"
 #include "Log.h"
 #include "ScriptMgr.h"
+#include "World.h"
 #include <mysqld_error.h>
 
 // Opens the guildmaster pool at boot, creates the database if missing, applies base + update SQL.
 // Same steps as mod-playerbots' PlayerbotsDatabaseScript. A failure stops the boot: running without the
 // bridge's database would silently lose events and orders. Then two per-world steps (sync queries are fine
-// here, before the world runs): the world-id stamp, and the legends view on this world's playerbots database.
+// here, before the world runs): the world-id stamp, and the legends view on this world's playerbots database. On a
+// fresh world's first boot that database does not exist yet (mod-playerbots creates it after this hook: modules load
+// in name order), so the view is then made once all databases are loaded; a failure there stops the boot too.
 class BridgeDatabaseScript : public DatabaseScript
 {
 public:
     BridgeDatabaseScript()
         : DatabaseScript("BridgeDatabaseScript",
-                         {DATABASEHOOK_ON_MODULE_DATABASES_LOADING, DATABASEHOOK_ON_MODULE_DATABASES_KEEPALIVE,
+                         {DATABASEHOOK_ON_MODULE_DATABASES_LOADING, DATABASEHOOK_ON_AFTER_DATABASES_LOADED,
+                          DATABASEHOOK_ON_MODULE_DATABASES_KEEPALIVE,
                           DATABASEHOOK_ON_MODULE_DATABASES_CLOSING, DATABASEHOOK_ON_DATABASE_WARN_ABOUT_SYNC_QUERIES})
     {
     }
@@ -62,8 +67,41 @@ public:
             LOG_ERROR("module.guildbridge", "Could not create or update the guildmaster database");
             return false;
         }
-        GuildmasterDatabaseReady = StampWorld() && CreateLegendsView() && GuildmasterDatabase.PrepareStatements();
+        if (!StampWorld())
+            return false;
+        _legendsLater = GuildBridge::LegendsViewTiming(PlayerbotsDatabaseExists()) ==
+                        GuildBridge::LegendsViewWhen::AfterAllDatabases;
+        if (_legendsLater)
+            LOG_INFO("module.guildbridge", "fresh world: the legends view on `{}` is made once all databases are loaded",
+                     BridgeConfig::Get().playerbotsDb);
+        else if (!CreateLegendsView())
+            return false;
+        GuildmasterDatabaseReady = GuildmasterDatabase.PrepareStatements();
         return GuildmasterDatabaseReady;
+    }
+
+    // A fresh world: mod-playerbots has now created and filled its database. The hook cannot fail the boot itself,
+    // so a failure prints the same line, turns the bridge's database off (no heartbeat) and stops the world.
+    void OnAfterDatabasesLoaded(uint32 /*updateFlags*/) override
+    {
+        if (!_legendsLater)
+            return;
+        _legendsLater = false;
+        if (CreateLegendsView())
+            return;
+        GuildmasterDatabaseReady = false;
+        World::StopNow(ERROR_EXIT_CODE);
+    }
+
+    // Is the world's playerbots database there yet? (An empty name falls through to CreateLegendsView's own error.)
+    static bool PlayerbotsDatabaseExists()
+    {
+        std::string const& pb = BridgeConfig::Get().playerbotsDb;
+        if (pb.empty())
+            return true;
+        QueryResult const r = GuildmasterDatabase.Query(Acore::StringFormat(
+            "SELECT COUNT(*) FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = '{}'", pb));
+        return !r || (*r)[0].Get<uint64>() != 0;
     }
 
     // One world per database (spec §2b saves). First boot: stamp it. Later boots: it must be the same world.
@@ -128,6 +166,9 @@ public:
     void OnModuleDatabasesKeepAlive() override { GuildmasterDatabase.KeepAlive(); }
     void OnModuleDatabasesClosing() override { GuildmasterDatabase.Close(); }
     void OnDatabaseWarnAboutSyncQueries(bool apply) override { GuildmasterDatabase.WarnAboutSyncQueries(apply); }
+
+private:
+    bool _legendsLater = false;
 };
 
 void AddBridgeDatabaseScripts() { new BridgeDatabaseScript(); }
