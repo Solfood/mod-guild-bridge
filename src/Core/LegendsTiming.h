@@ -14,10 +14,10 @@ enum class LegendsViewWhen
 };
 
 // Modules load their databases in name order, so mod-playerbots creates a fresh world's playerbots database after the
-// bridge's hook has run. When that database does not exist yet, the view waits until all databases are loaded.
-inline LegendsViewWhen LegendsViewTiming(bool playerbotsDatabaseExists)
+// bridge's hook has run. When its raisings table does not exist yet, the view waits until all databases are loaded.
+inline LegendsViewWhen LegendsViewTiming(bool raisingsTableExists)
 {
-    return playerbotsDatabaseExists ? LegendsViewWhen::Now : LegendsViewWhen::AfterAllDatabases;
+    return raisingsTableExists ? LegendsViewWhen::Now : LegendsViewWhen::AfterAllDatabases;
 }
 
 inline char const* LegendsViewWhenName(LegendsViewWhen w)

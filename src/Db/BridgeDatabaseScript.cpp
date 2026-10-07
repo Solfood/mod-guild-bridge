@@ -18,7 +18,7 @@
 // Same steps as mod-playerbots' PlayerbotsDatabaseScript. A failure stops the boot: running without the
 // bridge's database would silently lose events and orders. Then two per-world steps (sync queries are fine
 // here, before the world runs): the world-id stamp, and the legends view on this world's playerbots database. On a
-// fresh world's first boot that database does not exist yet (mod-playerbots creates it after this hook: modules load
+// fresh world's first boot that database (or its raisings table) does not exist yet (mod-playerbots creates it after this hook: modules load
 // in name order), so the view is then made once all databases are loaded; a failure there stops the boot too.
 class BridgeDatabaseScript : public DatabaseScript
 {
@@ -69,7 +69,7 @@ public:
         }
         if (!StampWorld())
             return false;
-        _legendsLater = GuildBridge::LegendsViewTiming(PlayerbotsDatabaseExists()) ==
+        _legendsLater = GuildBridge::LegendsViewTiming(PlayerbotsRaisingsExist()) ==
                         GuildBridge::LegendsViewWhen::AfterAllDatabases;
         if (_legendsLater)
             LOG_INFO("module.guildbridge", "fresh world: the legends view on `{}` is made once all databases are loaded",
@@ -93,14 +93,17 @@ public:
         World::StopNow(ERROR_EXIT_CODE);
     }
 
-    // Is the world's playerbots database there yet? (An empty name falls through to CreateLegendsView's own error.)
-    static bool PlayerbotsDatabaseExists()
+    // Is the fork's raisings table there yet? A table check, not a database check (review M3): a first boot killed
+    // while mod-playerbots filled its database leaves the database without the table, and the next boot must again
+    // let mod-playerbots finish first. (An empty name falls through to CreateLegendsView's own error.)
+    static bool PlayerbotsRaisingsExist()
     {
         std::string const& pb = BridgeConfig::Get().playerbotsDb;
         if (pb.empty())
             return true;
         QueryResult const r = GuildmasterDatabase.Query(Acore::StringFormat(
-            "SELECT COUNT(*) FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = '{}'", pb));
+            "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = '{}' "
+            "AND TABLE_NAME = 'playerbots_raisings'", pb));
         return !r || (*r)[0].Get<uint64>() != 0;
     }
 
