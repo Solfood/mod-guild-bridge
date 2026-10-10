@@ -14,6 +14,7 @@
 #include "NewGameOrders.h"
 #include "OrderRunner.h"
 #include "RestoreMgr.h"
+#include "RouteWriter.h"
 #include "ScriptMgr.h"
 #include "SimpleOrders.h"
 #include "StateWriter.h"
@@ -63,6 +64,7 @@ public:
         NewGameOrders::NoteCutOrders();  // before the runner fails the create_founders orders a restart cut
         OrderRunner::Instance().RecoverAtStartup();
         StateWriter::Instance().LoadFocusAtStartup();
+        StateWriter::Instance().LoadRoutesAtStartup();
         StuckDetector::Instance().CloseAllAtStartup();
         NewGameOrders::LoadAtStartup();  // after restore recovery: founders a restart cut short or left guildless
         WorldStatus::Instance().WriteNow();
@@ -80,6 +82,7 @@ public:
         RestoreMgr::Instance().Update(diff);
         DungeonRunMgr::Instance().Update(diff);
         StateWriter::Instance().Update(diff);
+        RouteWriter::Instance().Update(diff);
         StuckDetector::Instance().Update(diff);
         NewGameOrders::Update(diff);
         WorldStatus::Instance().Update(diff);

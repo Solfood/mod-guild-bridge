@@ -27,6 +27,7 @@
 #include "PlayerbotsAdapter.h"
 #include "QueryCallback.h"
 #include "RestoreMgr.h"
+#include "RouteWriter.h"
 #include "RunRegistry.h"
 #include "ScriptMgr.h"
 #include "SimpleOrders.h"
@@ -35,6 +36,7 @@
 #include "StuckDetector.h"
 #include "TemporarySummon.h"
 #include "WorldStatus.h"
+#include <algorithm>
 #include <cstdlib>
 #include <functional>
 #include <sstream>
@@ -148,7 +150,8 @@ public:
             return true;
         }
         if ((sub == "snapshot" || sub == "clone" || sub == "testbots" || sub == "guild" || sub == "bot" ||
-             sub == "event" || sub == "test" || sub == "order" || sub == "state" || sub == "run" || sub == "stuck") &&
+             sub == "event" || sub == "test" || sub == "order" || sub == "state" || sub == "run" || sub == "stuck" ||
+             sub == "routes") &&
             !BridgeConfig::Get().enable)
         {
             std::string const& why = BridgeConfig::Get().disabledReason;
@@ -339,6 +342,21 @@ public:
                                      PlayerbotsAdapter::RaisingsUserGuild());
             return true;
         }
+        if (sub == "routes")
+        {
+            // `bridge routes`: status; `hubs` / `clear` / `drops`: write now (test seams; hubs also with routes off).
+            std::string const what = words.size() > 1 ? words[1] : "";
+            if (what == "hubs")
+                RouteWriter::Instance().WriteHubs();
+            else if (what == "clear")
+                RouteWriter::Instance().ClearHubs();
+            else if (what == "drops")
+                RouteWriter::Instance().WriteDrops();
+            handler->PSendSysMessage("BRIDGEROUTES enabled={} hubs_written={} drop_rows={}",
+                                     PlayerbotsAdapter::RoutesEnabled() ? 1 : 0, RouteWriter::Instance().HubsWritten(),
+                                     RouteWriter::Instance().DropRows());
+            return true;
+        }
         if (sub == "bot" && words.size() > 1)
         {
             std::string name = words[1];
@@ -353,8 +371,13 @@ public:
             Player* bot = ObjectAccessor::FindConnectedPlayer(guid);
             Guild* guild = cache->GuildId ? sGuildMgr->GetGuildById(cache->GuildId) : nullptr;
             Guild::Member const* member = guild ? guild->GetMember(guid) : nullptr;
+            PlayerbotsAdapter::RouteInfo const route =
+                bot ? PlayerbotsAdapter::RouteOf(bot) : PlayerbotsAdapter::RouteInfo();
+            std::string hub = route.hub.empty() ? "-" : route.hub;
+            std::replace(hub.begin(), hub.end(), ' ', '_');  // one word, so the checks can read key=value
             handler->PSendSysMessage("BRIDGEBOT name={} guid={} online={} random={} held={} guild={} role={} rank={} "
-                                     "level={} prof1={} prof2={}",
+                                     "level={} prof1={} prof2={} routed={} hub={} done={} total={} struggling={} "
+                                     "style={} headto={}",
                                      name, guid.GetCounter(), bot ? 1 : 0,
                                      PlayerbotsAdapter::IsRandomBot(guid.GetCounter()) ? 1 : 0,
                                      PlayerbotsAdapter::IsHeld(guid.GetCounter()) ? 1 : 0, cache->GuildId,
@@ -362,7 +385,9 @@ public:
                                      member ? static_cast<int>(member->GetRankId()) : -1,
                                      static_cast<uint32>(bot ? bot->GetLevel() : cache->Level),
                                      PlayerbotsAdapter::StoredProfession(guid.GetCounter(), false),
-                                     PlayerbotsAdapter::StoredProfession(guid.GetCounter(), true));
+                                     PlayerbotsAdapter::StoredProfession(guid.GetCounter(), true), route.routed ? 1 : 0,
+                                     hub, route.done, route.total, route.struggling ? 1 : 0,
+                                     route.style.empty() ? "-" : route.style, route.headTo);
             return true;
         }
         if (sub == "event" && words.size() > 2 && words[1] == "fake")

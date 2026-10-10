@@ -8,6 +8,7 @@
 #include "BridgeAsync.h"
 #include "BridgeConfig.h"
 #include "CharacterCache.h"
+#include "DBCStores.h"
 #include "DatabaseEnv.h"
 #include "EventPayloads.h"
 #include "EventSink.h"
@@ -105,6 +106,7 @@ OrderResult Remove(ParsedOrder const& order, CharacterCacheEntry const* cache)
     uint32 const guildId = guild->GetId();
     guild->DeleteMember(cache->Guid, false, true);
     StateWriter::Instance().ClearFocus(order.bot);  // a focus order only applies to our members
+    StateWriter::Instance().ClearRoute(order.bot);  // so do route_style and head_to
     EventSink::Instance().Push(EventType::GuildLeave, order.bot, guildId, 0, GuildLeavePayload(guildName, true));
     return {true, cache->Name + " left " + guildName, ""};
 }
@@ -155,6 +157,48 @@ OrderResult FocusOrder(ParsedOrder const& order, CharacterCacheEntry const* cach
         return {true, "dry run: would set " + cache->Name + "'s focus to " + FocusName(order.focus), ""};
     StateWriter::Instance().SetFocus(order.bot, order.focus, order.id);
     return {true, cache->Name + "'s focus is now " + FocusName(order.focus), ""};
+}
+
+std::string ZoneName(uint32 zone)
+{
+    AreaTableEntry const* area = sAreaTableStore.LookupEntry(zone);
+    return area ? std::string(area->area_name[0]) : "zone " + std::to_string(zone);
+}
+
+// head_to (contract §4): walk toward a zone on its route. Stored in bot_route; the 30 s pass re-applies it after a
+// relog until the bot reaches the zone or outlevels it. With routes off it is refused and nothing changes.
+OrderResult HeadToOrder(ParsedOrder const& order, CharacterCacheEntry const* cache)
+{
+    if (!OurGuildOf(cache))
+        return {false, "bot is not in our guild", ""};
+    Player* bot = ObjectAccessor::FindPlayerByLowGUID(order.bot);
+    if (!bot)
+        return {false, PlayerbotsAdapter::RoutesEnabled() ? "bot is offline" : "routes are off", ""};
+    std::string const problem = PlayerbotsAdapter::HeadToProblem(bot, order.zone);  // "routes are off" first
+    if (!problem.empty())
+        return {false, problem, ""};
+    if (order.dryRun)
+        return {true, "dry run: " + cache->Name + " would head for " + ZoneName(order.zone), ""};
+    StateWriter::Instance().SetHeadTo(order.bot, order.zone, order.id);
+    PlayerbotsAdapter::SetHeadTo(bot, order.zone);
+    return {true, cache->Name + " heads for " + ZoneName(order.zone), ""};
+}
+
+// route_style (contract §4): stored in bot_route and applied now, or after its next login. Refused while routes are
+// off (globally, and not switched on for this bot by the fork's test seam), so nothing changes then.
+OrderResult RouteStyleOrder(ParsedOrder const& order, CharacterCacheEntry const* cache)
+{
+    if (!OurGuildOf(cache))
+        return {false, "bot is not in our guild", ""};
+    Player* bot = ObjectAccessor::FindPlayerByLowGUID(order.bot);
+    if (!PlayerbotsAdapter::RoutesEnabled() && !(bot && PlayerbotsAdapter::IsRouted(bot)))
+        return {false, "routes are off", ""};
+    if (order.dryRun)
+        return {true, "dry run: would set " + cache->Name + "'s route style to " + order.style, ""};
+    StateWriter::Instance().SetRouteStyle(order.bot, order.style, order.id);
+    if (bot)
+        PlayerbotsAdapter::SetRouteStyle(bot, order.style);
+    return {true, cache->Name + "'s route style is now " + order.style, ""};
 }
 
 // One snapshot batch (preflight D11: the bookkeeping lives here once). Requests are paced by Update().
@@ -241,6 +285,8 @@ OrderResult SimpleOrders::Run(ParsedOrder const& order)
         case OrderType::Rank: return Rank(order, cache);
         case OrderType::PresetProfessions: return PresetProfessions(order, cache);
         case OrderType::Focus: return FocusOrder(order, cache);
+        case OrderType::HeadTo: return HeadToOrder(order, cache);
+        case OrderType::RouteStyle: return RouteStyleOrder(order, cache);
         default: return {false, "unknown order type", ""};
     }
 }

@@ -101,7 +101,8 @@ void OrderRunner::Poll()
         "IFNULL(params->>'$.faction',''), IFNULL(params->>'$.guild_name',''), IFNULL(params->>'$.leader_name',''), "
         "IFNULL(params->>'$.role',''), IFNULL(params->>'$.leader_race',''), IFNULL(params->>'$.guild_id',''), "
         "CASE WHEN params->'$.founders' IS NULL THEN '' WHEN JSON_TYPE(params->'$.founders') = 'ARRAY' "
-        "THEN CAST(JSON_LENGTH(params->'$.founders') AS CHAR) ELSE 'x' END "
+        "THEN CAST(JSON_LENGTH(params->'$.founders') AS CHAR) ELSE 'x' END, "
+        "IFNULL(params->>'$.zone',''), IFNULL(params->>'$.style','') "
         "FROM orders WHERE status = 'pending' ORDER BY id LIMIT 20")
                          .WithCallback([this](QueryResult result) {
                              _polling = false;
@@ -136,6 +137,8 @@ void OrderRunner::Poll()
                                  row.leaderRace = FieldText(f[25]);
                                  row.guildId = FieldText(f[26]);
                                  row.foundersLength = FieldText(f[27]);
+                                 row.zone = FieldText(f[28]);
+                                 row.style = FieldText(f[29]);
                                  if (!_running.count(row.id))
                                      Handle(row);
                              } while (result->NextRow());
@@ -164,6 +167,8 @@ void OrderRunner::Handle(GuildBridge::OrderRow const& row)
         case GuildBridge::OrderType::Remove:
         case GuildBridge::OrderType::Rank:
         case GuildBridge::OrderType::PresetProfessions:
+        case GuildBridge::OrderType::HeadTo:
+        case GuildBridge::OrderType::RouteStyle:
             Finish(id, SimpleOrders::Run(order));
             break;
         case GuildBridge::OrderType::Snapshot:

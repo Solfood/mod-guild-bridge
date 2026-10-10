@@ -7,6 +7,7 @@
 #define MOD_GUILD_BRIDGE_CORE_ORDERRULES_H
 
 #include "NewGameRules.h"
+#include "RouteOrderRules.h"
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -18,7 +19,7 @@ namespace GuildBridge
 enum class OrderType
 {
     Focus, Invite, Remove, Rank, PresetProfessions, RunDungeon, Snapshot, SnapshotAll, Restore, CreateGuild,
-    CreateFounders, Unknown
+    CreateFounders, HeadTo, RouteStyle, Unknown
 };
 // Same numbers as the fork's NewRpgInfo::focus.
 enum class Focus : uint8_t { None = 0, Questing = 1, Grinding = 2, Pvp = 3, Gathering = 4, Resting = 5 };
@@ -49,6 +50,7 @@ struct OrderRow
     std::array<std::string, 5> party;
     std::string partyLength, heroic, approach, snapshotId, takenBefore, dryRun, testFail;
     std::string faction, guildName, leaderName, role, leaderRace, guildId, foundersLength;  // New Game orders
+    std::string zone, style;  // head_to, route_style (Plan 5a)
 };
 
 struct ParsedOrder
@@ -75,6 +77,9 @@ struct ParsedOrder
     uint8_t leaderRace = 0;  // 0 = the faction's default (Human / Orc)
     uint32_t guildId = 0;
     uint32_t founderCount = 0;
+    // head_to / route_style (Plan 5a)
+    uint32_t zone = 0;
+    std::string style;
 };
 
 inline bool ParseUInt(std::string const& text, uint64_t max, uint64_t& out)
@@ -120,6 +125,8 @@ inline OrderType OrderTypeFromName(std::string const& name)
     if (name == "restore") return OrderType::Restore;
     if (name == "create_guild") return OrderType::CreateGuild;
     if (name == "create_founders") return OrderType::CreateFounders;
+    if (name == "head_to") return OrderType::HeadTo;
+    if (name == "route_style") return OrderType::RouteStyle;
     return OrderType::Unknown;
 }
 
@@ -335,6 +342,24 @@ inline std::string ParseOrder(OrderRow const& row, ParsedOrder& out)
             if (!ParseUInt(row.snapshotId, UINT64_MAX, value) || !value)
                 return "bad value for snapshot_id";
             out.snapshotId = value;
+            return "";
+        case OrderType::HeadTo:
+            if (!(error = needBot()).empty())
+                return error;
+            if (row.zone.empty())
+                return "missing field zone";
+            if (!ParseUInt(row.zone, UINT32_MAX, value) || !value)
+                return "bad value for zone";
+            out.zone = static_cast<uint32_t>(value);
+            return "";
+        case OrderType::RouteStyle:
+            if (!(error = needBot()).empty())
+                return error;
+            if (row.style.empty())
+                return "missing field style";
+            if (!RouteStyleValid(row.style))
+                return "bad value for style";
+            out.style = row.style;
             return "";
         case OrderType::Unknown:
             break;
