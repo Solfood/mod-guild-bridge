@@ -86,6 +86,34 @@ std::string LastStuckDest(Player* bot);  // "map:x:y:z" of the last stuck move, 
 void GoTo(Player* bot, GuildBridge::Spot const& spot);
 void Park(Player* bot);      // arrived: stay put
 void ClearGoTo(Player* bot);  // back to its normal life
+
+// Quest routes (fork RouteMgr, guildmaster Plan 5a). World thread.
+struct RouteInfo
+{
+    bool routed = false;      // the bot follows routes (switch on, or the fork's test seam)
+    std::string hub;          // the hub it is bound for or working ("" = none)
+    uint32 done = 0, total = 0;
+    bool struggling = false;
+    std::string style;        // steady | curious | easygoing ("" without a bot AI)
+    uint32 headTo = 0;        // the zone of its head_to (0 = none)
+};
+RouteInfo RouteOf(Player* bot);
+bool RoutesEnabled();         // AiPlayerbot.QuestRoutes = 1 and the routes are built
+struct RouteHubRow
+{
+    uint32 id = 0;
+    std::string name, faction;
+    uint32 map = 0, zone = 0, area = 0;
+    uint8 minLevel = 0, level = 0, maxLevel = 0;
+    uint32 quests = 0;
+    float x = 0, y = 0;
+};
+std::vector<RouteHubRow> RouteHubs();  // builds the routes in memory first when they are not (the test seam)
+struct QuestDropRow
+{
+    uint32 quest = 0, drops = 0, lastAt = 0;
+};
+std::vector<QuestDropRow> QuestDrops();
 }  // namespace PlayerbotsAdapter
 
 #endif

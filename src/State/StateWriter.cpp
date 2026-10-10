@@ -17,6 +17,7 @@
 #include "QueryCallback.h"
 #include "RestoreMgr.h"
 #include "StringFormat.h"
+#include <algorithm>
 #include <chrono>
 #include <ctime>
 #include <string>
@@ -173,7 +174,15 @@ void StateWriter::WriteMembers(std::unordered_map<uint32, uint32> const& members
         stmt->SetData(22, static_cast<uint8>(bot->GetGroup() ? 1 : 0));
         stmt->SetData(23, BridgeRunIdFor(guid));
         stmt->SetData(24, held);
-        stmt->SetData(25, now);
+        // Quest routes (Plan 5a): its hub, progress there and the struggling flag (NULL / 0 while it is not routed),
+        // and its style (always written: the bridge's route_style, else the fork's pick from its guid).
+        PlayerbotsAdapter::RouteInfo const route = PlayerbotsAdapter::RouteOf(bot);
+        stmt->SetData(25, route.hub);
+        stmt->SetData(26, static_cast<uint16>(std::min<uint32>(route.done, 65535)));
+        stmt->SetData(27, static_cast<uint16>(std::min<uint32>(route.total, 65535)));
+        stmt->SetData(28, static_cast<uint8>(route.struggling ? 1 : 0));
+        stmt->SetData(29, route.style);
+        stmt->SetData(30, now);
         trans->Append(stmt);
         ++rows;
     }

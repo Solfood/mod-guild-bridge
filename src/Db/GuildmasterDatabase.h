@@ -29,6 +29,8 @@ enum GuildmasterStatements : uint32
     GM_UPS_BOT_OFFLINE,
     GM_UPD_WORLD_STATUS,
     GM_REP_PROFILE,
+    GM_INS_ROUTE_HUB,
+    GM_INS_QUEST_DROP,
     MAX_GUILDMASTER_STATEMENTS
 };
 

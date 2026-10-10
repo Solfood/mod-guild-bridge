@@ -14,6 +14,7 @@
 #include "NewGameOrders.h"
 #include "OrderRunner.h"
 #include "RestoreMgr.h"
+#include "RouteWriter.h"
 #include "ScriptMgr.h"
 #include "SimpleOrders.h"
 #include "StateWriter.h"
@@ -80,6 +81,7 @@ public:
         RestoreMgr::Instance().Update(diff);
         DungeonRunMgr::Instance().Update(diff);
         StateWriter::Instance().Update(diff);
+        RouteWriter::Instance().Update(diff);
         StuckDetector::Instance().Update(diff);
         NewGameOrders::Update(diff);
         WorldStatus::Instance().Update(diff);

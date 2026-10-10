@@ -18,6 +18,7 @@
 #include "ProfessionPicker.h"
 #include "QueryResult.h"
 #include "RaisingMgr.h"
+#include "RouteMgr.h"
 #include "RandomPlayerbotMgr.h"
 #include "StringFormat.h"
 #include <algorithm>
@@ -192,6 +193,7 @@ std::string PlayerbotsAdapter::RpgStatusName(Player* bot)
         case RPG_REST: return "REST";
         case RPG_OUTDOOR_PVP: return "OUTDOOR_PVP";
         case RPG_DO_GATHER: return "DO_GATHER";
+        case RPG_FOLLOW_ROUTE: return "FOLLOW_ROUTE";
         default: return "-";
     }
 }
@@ -280,4 +282,65 @@ std::string PlayerbotsAdapter::LastStuckDest(Player* bot)
     WorldPosition const& d = botAI->rpgInfo.lastStuckDest;
     return Acore::StringFormat("{}:{:.0f}:{:.0f}:{:.0f}", d.GetMapId(), d.GetPositionX(), d.GetPositionY(),
                                d.GetPositionZ());
+}
+
+PlayerbotsAdapter::RouteInfo PlayerbotsAdapter::RouteOf(Player* bot)
+{
+    RouteInfo info;
+    PlayerbotAI* botAI = GET_PLAYERBOT_AI(bot);
+    if (!botAI)
+        return info;
+    RouteMgr const& routes = RouteMgr::instance();
+    info.style = Routes::StyleName(routes.StyleOf(bot));
+    info.headTo = RouteMgr::HeadTo(bot);
+    info.routed = routes.Routed(bot);
+    if (!info.routed)
+        return info;
+    if (Routes::Hub const* hub = routes.HubById(botAI->rpgInfo.route.hubId))
+    {
+        RouteMgr::HubWork const work = routes.WorkAt(bot, *hub);
+        info.hub = hub->name;
+        info.done = work.done;
+        info.total = work.done + work.remaining;
+    }
+    info.struggling = routes.Struggling(bot);
+    return info;
+}
+
+bool PlayerbotsAdapter::RoutesEnabled()
+{
+    return sPlayerbotAIConfig.questRoutes.enabled && RouteMgr::instance().Built();
+}
+
+std::vector<PlayerbotsAdapter::RouteHubRow> PlayerbotsAdapter::RouteHubs()
+{
+    RouteMgr& routes = RouteMgr::instance();
+    routes.Build();
+    std::vector<RouteHubRow> rows;
+    for (Routes::Hub const& h : routes.Hubs())
+    {
+        RouteHubRow r;
+        r.id = h.id;
+        r.name = h.name;
+        r.faction = h.team == Routes::TEAM_HORDE_ID ? "horde" : "alliance";
+        r.map = h.map;
+        r.zone = h.zone;
+        r.area = h.area;
+        r.minLevel = h.minLevel;
+        r.level = h.level;
+        r.maxLevel = h.maxLevel;
+        r.quests = static_cast<uint32>(h.quests.size());
+        r.x = h.x;
+        r.y = h.y;
+        rows.push_back(std::move(r));
+    }
+    return rows;
+}
+
+std::vector<PlayerbotsAdapter::QuestDropRow> PlayerbotsAdapter::QuestDrops()
+{
+    std::vector<QuestDropRow> rows;
+    for (RouteMgr::DropCount const& c : RouteMgr::instance().DropCounts())
+        rows.push_back({c.quest, c.drops, c.lastAt});
+    return rows;
 }
