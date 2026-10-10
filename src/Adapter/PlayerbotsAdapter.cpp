@@ -344,3 +344,21 @@ std::vector<PlayerbotsAdapter::QuestDropRow> PlayerbotsAdapter::QuestDrops()
         rows.push_back({c.quest, c.drops, c.lastAt});
     return rows;
 }
+
+bool PlayerbotsAdapter::IsRouted(Player* bot) { return RouteMgr::instance().Routed(bot); }
+
+std::string PlayerbotsAdapter::HeadToProblem(Player* bot, uint32 zone)
+{
+    return RouteMgr::instance().HeadToProblem(bot, zone);
+}
+
+void PlayerbotsAdapter::SetHeadTo(Player* bot, uint32 zone) { RouteMgr::SetHeadTo(bot, zone); }
+
+uint32 PlayerbotsAdapter::HeadTo(Player* bot) { return RouteMgr::HeadTo(bot); }
+
+void PlayerbotsAdapter::SetRouteStyle(Player* bot, std::string const& style)
+{
+    Routes::Style s = Routes::Style::Steady;
+    if (Routes::StyleFromName(style, s))
+        RouteMgr::SetStyle(bot, s);
+}

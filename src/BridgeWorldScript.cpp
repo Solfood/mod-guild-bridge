@@ -64,6 +64,7 @@ public:
         NewGameOrders::NoteCutOrders();  // before the runner fails the create_founders orders a restart cut
         OrderRunner::Instance().RecoverAtStartup();
         StateWriter::Instance().LoadFocusAtStartup();
+        StateWriter::Instance().LoadRoutesAtStartup();
         StuckDetector::Instance().CloseAllAtStartup();
         NewGameOrders::LoadAtStartup();  // after restore recovery: founders a restart cut short or left guildless
         WorldStatus::Instance().WriteNow();

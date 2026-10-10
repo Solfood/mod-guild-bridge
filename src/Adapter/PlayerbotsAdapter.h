@@ -114,6 +114,12 @@ struct QuestDropRow
     uint32 quest = 0, drops = 0, lastAt = 0;
 };
 std::vector<QuestDropRow> QuestDrops();
+// head_to and route_style (Plan 5a). World thread; the bot is online. The fork keeps both in memory only.
+bool IsRouted(Player* bot);                           // routes on for it (the switch, or the fork's test seam)
+std::string HeadToProblem(Player* bot, uint32 zone);  // "" when it may go; else the refusal in plain words
+void SetHeadTo(Player* bot, uint32 zone);             // 0 clears
+uint32 HeadTo(Player* bot);
+void SetRouteStyle(Player* bot, std::string const& style);  // steady | curious | easygoing; anything else is ignored
 }  // namespace PlayerbotsAdapter
 
 #endif

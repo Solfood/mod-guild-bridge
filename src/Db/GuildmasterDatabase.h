@@ -31,6 +31,7 @@ enum GuildmasterStatements : uint32
     GM_REP_PROFILE,
     GM_INS_ROUTE_HUB,
     GM_INS_QUEST_DROP,
+    GM_REP_BOT_ROUTE,
     MAX_GUILDMASTER_STATEMENTS
 };
 

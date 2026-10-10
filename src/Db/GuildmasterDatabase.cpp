@@ -32,6 +32,10 @@ void GuildmasterDatabaseConnection::DoPrepareStatements()
                      CONNECTION_ASYNC);
     PrepareStatement(GM_INS_QUEST_DROP, "INSERT INTO quest_drops (quest, drops, last_at, updated_at) VALUES (?, ?, ?, ?)",
                      CONNECTION_ASYNC);
+    PrepareStatement(GM_REP_BOT_ROUTE,
+                     "REPLACE INTO bot_route (guid, style, head_to_zone, style_order_id, head_to_order_id, set_at) "
+                     "VALUES (?, NULLIF(?, ''), ?, NULLIF(?, 0), NULLIF(?, 0), ?)",
+                     CONNECTION_ASYNC);
     PrepareStatement(GM_INS_SNAPSHOT,
                      "INSERT INTO bot_snapshots (guid, account, name, level, guild_id, guild_rank, reason, order_id, taken_at, "
                      "size_bytes, dump) VALUES (?, ?, ?, ?, ?, ?, ?, NULLIF(?, 0), ?, ?, ?)",

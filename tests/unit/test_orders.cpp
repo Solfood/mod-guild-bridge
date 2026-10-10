@@ -171,5 +171,27 @@ int main()
     CHECK_EQ(std::string("CharacterDatabase.WorkerThreads is 4 (must be 1), GuildmasterDatabase.WorkerThreads is 2 "
                          "(must be 1)"),
              WriterThreadsProblem(4, 2));
+
+    // Plan 5a: head_to and route_style.
+    OrderRow headTo = Row("head_to");
+    CHECK_EQ(std::string("missing field bot"), ParseOrder(headTo, out));
+    headTo.bot = "77";
+    CHECK_EQ(std::string("missing field zone"), ParseOrder(headTo, out));
+    headTo.zone = "abc";
+    CHECK_EQ(std::string("bad value for zone"), ParseOrder(headTo, out));
+    headTo.zone = "0";
+    CHECK_EQ(std::string("bad value for zone"), ParseOrder(headTo, out));
+    headTo.zone = "130";
+    CHECK_EQ(std::string(""), ParseOrder(headTo, out));
+    CHECK_TRUE(out.type == OrderType::HeadTo);
+    CHECK_EQ(130u, out.zone);
+    OrderRow style = Row("route_style");
+    style.bot = "77";
+    CHECK_EQ(std::string("missing field style"), ParseOrder(style, out));
+    style.style = "lazy";
+    CHECK_EQ(std::string("bad value for style"), ParseOrder(style, out));
+    style.style = "curious";
+    CHECK_EQ(std::string(""), ParseOrder(style, out));
+    CHECK_EQ(std::string("curious"), out.style);
     return UnitFailures();
 }

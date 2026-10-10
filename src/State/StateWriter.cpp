@@ -11,6 +11,7 @@
 #include "GuildRegistry.h"
 #include "GuildmasterDatabase.h"
 #include "Log.h"
+#include "Map.h"
 #include "ObjectAccessor.h"
 #include "Player.h"
 #include "PlayerbotsAdapter.h"
@@ -71,6 +72,97 @@ void StateWriter::ClearFocus(uint32 guid)
     GuildmasterDatabase.Execute("DELETE FROM bot_focus WHERE guid = {}", guid);
     if (Player* bot = ObjectAccessor::FindPlayerByLowGUID(guid))
         PlayerbotsAdapter::SetFocus(bot, static_cast<uint8>(Focus::None));
+}
+
+void StateWriter::LoadRoutesAtStartup()
+{
+    if (QueryResult result =
+            GuildmasterDatabase.Query("SELECT guid, IFNULL(style, ''), head_to_zone, IFNULL(style_order_id, 0), "
+                                      "IFNULL(head_to_order_id, 0) FROM bot_route"))
+        do
+        {
+            StoredRoute& r = _routes[(*result)[0].Get<uint32>()];
+            r.style = (*result)[1].Get<std::string>();
+            r.headTo = (*result)[2].Get<uint32>();
+            r.styleOrder = (*result)[3].Get<uint64>();
+            r.headToOrder = (*result)[4].Get<uint64>();
+        } while (result->NextRow());
+    LOG_INFO("module.guildbridge", "GUILDBRIDGE routes loaded for {} bot(s)", _routes.size());
+}
+
+void StateWriter::SaveRoute(uint32 guid)
+{
+    StoredRoute const& r = _routes[guid];
+    GuildmasterPreparedStatement* stmt = GuildmasterDatabase.GetPreparedStatement(GM_REP_BOT_ROUTE);
+    stmt->SetData(0, guid);
+    stmt->SetData(1, r.style);
+    stmt->SetData(2, r.headTo);
+    stmt->SetData(3, r.styleOrder);
+    stmt->SetData(4, r.headToOrder);
+    stmt->SetData(5, static_cast<uint32>(std::time(nullptr)));
+    GuildmasterDatabase.Execute(stmt);
+}
+
+void StateWriter::SetHeadTo(uint32 guid, uint32 zone, uint64 orderId)
+{
+    StoredRoute& r = _routes[guid];
+    r.headTo = zone;
+    r.headToOrder = orderId;
+    SaveRoute(guid);
+}
+
+void StateWriter::ClearHeadTo(uint32 guid)
+{
+    auto const it = _routes.find(guid);
+    if (it == _routes.end() || !it->second.headTo)
+        return;
+    it->second.headTo = 0;
+    SaveRoute(guid);
+}
+
+void StateWriter::SetRouteStyle(uint32 guid, std::string const& style, uint64 orderId)
+{
+    StoredRoute& r = _routes[guid];
+    r.style = style;
+    r.styleOrder = orderId;
+    SaveRoute(guid);
+}
+
+void StateWriter::ClearRoute(uint32 guid)
+{
+    _routes.erase(guid);
+    GuildmasterDatabase.Execute("DELETE FROM bot_route WHERE guid = {}", guid);
+    if (Player* bot = ObjectAccessor::FindPlayerByLowGUID(guid))
+        PlayerbotsAdapter::SetHeadTo(bot, 0);
+}
+
+void StateWriter::ReapplyRoute(Player* bot, uint32 guid, bool held)
+{
+    auto const stored = _routes.find(guid);
+    if (stored == _routes.end())
+        return;
+    // The fork forgets style and head_to at logout. Setting the style again is one byte, so it is not compared first
+    // (preflight D23: no second RouteOf per member).
+    if (!stored->second.style.empty())
+        PlayerbotsAdapter::SetRouteStyle(bot, stored->second.style);
+    uint32 const zone = stored->second.headTo;
+    // Preflight C7: held, in a dungeon run or in an instance there is no route to check against, so the head_to is
+    // kept as it is until the bot is back in the open world.
+    if (!zone || held || BridgeRunIdFor(guid) || !bot->GetMap() || bot->GetMap()->Instanceable())
+        return;
+    bool const fits = PlayerbotsAdapter::HeadToProblem(bot, zone).empty();
+    switch (NextHeadToStep(zone, PlayerbotsAdapter::HeadTo(bot), bot->GetZoneId(), fits))
+    {
+        case HeadToStep::Reapply:
+            PlayerbotsAdapter::SetHeadTo(bot, zone);
+            break;
+        case HeadToStep::Clear:  // reached, outlevelled, or routes off for it (contract §4 head_to)
+            PlayerbotsAdapter::SetHeadTo(bot, 0);
+            ClearHeadTo(guid);
+            break;
+        case HeadToStep::Keep:
+            break;
+    }
 }
 
 void StateWriter::Update(uint32 diff)
@@ -146,6 +238,7 @@ void StateWriter::WriteMembers(std::unordered_map<uint32, uint32> const& members
         }
         if (PlayerbotsAdapter::GetFocus(bot) != static_cast<uint8>(focus))
             PlayerbotsAdapter::SetFocus(bot, static_cast<uint8>(focus));  // the fork forgets focus at logout
+        ReapplyRoute(bot, guid, held);  // before RouteOf below reads style and head_to
 
         GuildmasterPreparedStatement* stmt = GuildmasterDatabase.GetPreparedStatement(GM_REP_BOT_STATE);
         stmt->SetData(0, guid);
