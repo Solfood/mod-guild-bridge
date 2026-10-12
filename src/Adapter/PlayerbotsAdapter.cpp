@@ -5,6 +5,7 @@
 #include "PlayerbotsAdapter.h"
 
 #include "AiFactory.h"
+#include "GuideMgr.h"
 #include "MotionMaster.h"
 #include "Player.h"
 #include "PlayerbotAI.h"
@@ -293,6 +294,17 @@ PlayerbotsAdapter::RouteInfo PlayerbotsAdapter::RouteOf(Player* bot)
     RouteMgr const& routes = RouteMgr::instance();
     info.style = Routes::StyleName(routes.StyleOf(bot));
     info.headTo = RouteMgr::HeadTo(bot);
+    // Guides (Plan 5c) win over routes: the same columns, holding the guide's name and the bot's place in it.
+    GuideMgr::Progress const guide = GuideMgr::instance().ProgressOf(bot);
+    if (guide.guided)
+    {
+        info.guided = true;
+        info.hub = guide.name;
+        info.done = guide.done;
+        info.total = guide.total;
+        info.struggling = RouteMgr::instance().Struggling(bot);
+        return info;
+    }
     info.routed = routes.Routed(bot);
     if (!info.routed)
         return info;
@@ -310,6 +322,11 @@ PlayerbotsAdapter::RouteInfo PlayerbotsAdapter::RouteOf(Player* bot)
 bool PlayerbotsAdapter::RoutesEnabled()
 {
     return sPlayerbotAIConfig.questRoutes.enabled && RouteMgr::instance().Built();
+}
+
+bool PlayerbotsAdapter::GuidesEnabled()
+{
+    return sPlayerbotAIConfig.guideBots.enabled && GuideMgr::instance().Built();
 }
 
 std::vector<PlayerbotsAdapter::RouteHubRow> PlayerbotsAdapter::RouteHubs()

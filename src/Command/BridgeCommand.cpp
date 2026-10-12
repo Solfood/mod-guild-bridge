@@ -352,8 +352,9 @@ public:
                 RouteWriter::Instance().ClearHubs();
             else if (what == "drops")
                 RouteWriter::Instance().WriteDrops();
-            handler->PSendSysMessage("BRIDGEROUTES enabled={} hubs_written={} drop_rows={}",
-                                     PlayerbotsAdapter::RoutesEnabled() ? 1 : 0, RouteWriter::Instance().HubsWritten(),
+            handler->PSendSysMessage("BRIDGEROUTES enabled={} guides={} hubs_written={} drop_rows={}",
+                                     PlayerbotsAdapter::RoutesEnabled() ? 1 : 0,
+                                     PlayerbotsAdapter::GuidesEnabled() ? 1 : 0, RouteWriter::Instance().HubsWritten(),
                                      RouteWriter::Instance().DropRows());
             return true;
         }
@@ -376,8 +377,8 @@ public:
             std::string hub = route.hub.empty() ? "-" : route.hub;
             std::replace(hub.begin(), hub.end(), ' ', '_');  // one word, so the checks can read key=value
             handler->PSendSysMessage("BRIDGEBOT name={} guid={} online={} random={} held={} guild={} role={} rank={} "
-                                     "level={} prof1={} prof2={} routed={} hub={} done={} total={} struggling={} "
-                                     "style={} headto={}",
+                                     "level={} prof1={} prof2={} routed={} guided={} hub={} done={} total={} "
+                                     "struggling={} style={} headto={}",
                                      name, guid.GetCounter(), bot ? 1 : 0,
                                      PlayerbotsAdapter::IsRandomBot(guid.GetCounter()) ? 1 : 0,
                                      PlayerbotsAdapter::IsHeld(guid.GetCounter()) ? 1 : 0, cache->GuildId,
@@ -386,7 +387,7 @@ public:
                                      static_cast<uint32>(bot ? bot->GetLevel() : cache->Level),
                                      PlayerbotsAdapter::StoredProfession(guid.GetCounter(), false),
                                      PlayerbotsAdapter::StoredProfession(guid.GetCounter(), true), route.routed ? 1 : 0,
-                                     hub, route.done, route.total, route.struggling ? 1 : 0,
+                                     route.guided ? 1 : 0, hub, route.done, route.total, route.struggling ? 1 : 0,
                                      route.style.empty() ? "-" : route.style, route.headTo);
             return true;
         }

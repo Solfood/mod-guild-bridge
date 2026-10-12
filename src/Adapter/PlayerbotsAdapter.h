@@ -96,9 +96,11 @@ struct RouteInfo
     bool struggling = false;
     std::string style;        // steady | curious | easygoing ("" without a bot AI)
     uint32 headTo = 0;        // the zone of its head_to (0 = none)
+    bool guided = false;      // it follows a levelling guide (Plan 5c): hub, done and total are the guide's
 };
-RouteInfo RouteOf(Player* bot);
+RouteInfo RouteOf(Player* bot);  // a guided bot (Plan 5c): its guide's short name, steps passed, steps in the guide
 bool RoutesEnabled();         // AiPlayerbot.QuestRoutes = 1 and the routes are built
+bool GuidesEnabled();         // AiPlayerbot.GuideBots = 1 and the guides are loaded
 struct RouteHubRow
 {
     uint32 id = 0;

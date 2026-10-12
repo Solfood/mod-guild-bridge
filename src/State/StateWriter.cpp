@@ -268,14 +268,16 @@ void StateWriter::WriteMembers(std::unordered_map<uint32, uint32> const& members
         stmt->SetData(23, BridgeRunIdFor(guid));
         stmt->SetData(24, held);
         // Quest routes (Plan 5a): its hub, progress there and the struggling flag (NULL / 0 while it is not routed),
-        // and its style (always written: the bridge's route_style, else the fork's pick from its guid).
+        // and its style (always written: the bridge's route_style, else the fork's pick from its guid). A guided bot
+        // (Plan 5c): guided = 1 and the route columns hold its guide (short name, steps passed, steps in the guide).
         PlayerbotsAdapter::RouteInfo const route = PlayerbotsAdapter::RouteOf(bot);
         stmt->SetData(25, route.hub);
         stmt->SetData(26, static_cast<uint16>(std::min<uint32>(route.done, 65535)));
         stmt->SetData(27, static_cast<uint16>(std::min<uint32>(route.total, 65535)));
         stmt->SetData(28, static_cast<uint8>(route.struggling ? 1 : 0));
         stmt->SetData(29, route.style);
-        stmt->SetData(30, now);
+        stmt->SetData(30, static_cast<uint8>(route.guided ? 1 : 0));
+        stmt->SetData(31, now);
         trans->Append(stmt);
         ++rows;
     }
