@@ -195,6 +195,7 @@ std::string PlayerbotsAdapter::RpgStatusName(Player* bot)
         case RPG_OUTDOOR_PVP: return "OUTDOOR_PVP";
         case RPG_DO_GATHER: return "DO_GATHER";
         case RPG_FOLLOW_ROUTE: return "FOLLOW_ROUTE";
+        case RPG_FOLLOW_GUIDE: return "FOLLOW_GUIDE";  // Plan 5c: a guided bot on its levelling guide
         default: return "-";
     }
 }
