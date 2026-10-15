@@ -18,7 +18,7 @@ namespace GuildBridge
 enum class EventType : uint8_t
 {
     Level, Loot, Death, PvpKill, Achievement, BossKill, BossWipe, GuildJoin, GuildLeave, GuildRank, GuildFounded,
-    First, RunStart, RunTravel, RunTeleport, RunAmbush, RunEnd, Restore, Fake, Count
+    First, RunStart, RunTravel, RunTeleport, RunAmbush, RunEnd, Restore, Fake, CraftSkill, Craft, Count
 };
 
 inline char const* EventTypeName(EventType type)
@@ -26,7 +26,8 @@ inline char const* EventTypeName(EventType type)
     static char const* const names[] = {"level",      "loot",          "death",      "pvp_kill",   "achievement",
                                         "boss_kill",  "boss_wipe",     "guild_join", "guild_leave", "guild_rank",
                                         "guild_founded", "first",      "run_start",  "run_travel", "run_teleport",
-                                        "run_ambush", "run_end",       "restore",    "fake"};
+                                        "run_ambush", "run_end",       "restore",    "fake",       "craft_skill",
+                                        "craft"};
     static_assert(sizeof(names) / sizeof(names[0]) == static_cast<std::size_t>(EventType::Count));
     auto const index = static_cast<std::size_t>(type);
     return index < static_cast<std::size_t>(EventType::Count) ? names[index] : "?";
@@ -68,6 +69,22 @@ inline std::string LootPayload(uint32_t itemEntry, std::string_view itemName, ui
     j.UInt("item_entry", itemEntry).Str("item_name", itemName).UInt("quality", quality).UInt("item_level", itemLevel)
         .UInt("count", count).Str("source", source);
     return AddWhere(j, w).Build();
+}
+
+// World of Craft (Plan 6a): a profession reached a milestone (CraftNewsRules.h).
+inline std::string CraftSkillPayload(uint32_t skill, uint32_t value, Where const& w)
+{
+    JsonObject j;
+    j.UInt("skill", skill).UInt("value", value);
+    return AddWhere(j, w).Build();
+}
+
+// World of Craft (Plan 6a): one of our members made a piece of gear (uncommon or better).
+inline std::string CraftPayload(uint32_t itemEntry, std::string_view itemName, uint32_t quality, uint32_t itemLevel,
+                                uint32_t count)
+{
+    return JsonObject().UInt("item_entry", itemEntry).Str("item_name", itemName).UInt("quality", quality)
+        .UInt("item_level", itemLevel).UInt("count", count).Build();
 }
 
 inline std::string DeathPayload(DeathInfo const& d)

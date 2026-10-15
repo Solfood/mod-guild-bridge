@@ -376,9 +376,13 @@ public:
                 bot ? PlayerbotsAdapter::RouteOf(bot) : PlayerbotsAdapter::RouteInfo();
             std::string hub = route.hub.empty() ? "-" : route.hub;
             std::replace(hub.begin(), hub.end(), ' ', '_');  // one word, so the checks can read key=value
+            // World of Craft (Plan 6a): its profession skills and whether it is on a craft trip (0s offline).
+            PlayerbotsAdapter::CraftInfo const craft = bot ? PlayerbotsAdapter::CraftOf(
+                bot, PlayerbotsAdapter::StoredProfession(guid.GetCounter(), false),
+                PlayerbotsAdapter::StoredProfession(guid.GetCounter(), true)) : PlayerbotsAdapter::CraftInfo();
             handler->PSendSysMessage("BRIDGEBOT name={} guid={} online={} random={} held={} guild={} role={} rank={} "
                                      "level={} prof1={} prof2={} routed={} guided={} hub={} done={} total={} "
-                                     "struggling={} style={} headto={}",
+                                     "struggling={} style={} headto={} skill1={} skill2={} crafting={}",
                                      name, guid.GetCounter(), bot ? 1 : 0,
                                      PlayerbotsAdapter::IsRandomBot(guid.GetCounter()) ? 1 : 0,
                                      PlayerbotsAdapter::IsHeld(guid.GetCounter()) ? 1 : 0, cache->GuildId,
@@ -388,7 +392,8 @@ public:
                                      PlayerbotsAdapter::StoredProfession(guid.GetCounter(), false),
                                      PlayerbotsAdapter::StoredProfession(guid.GetCounter(), true), route.routed ? 1 : 0,
                                      route.guided ? 1 : 0, hub, route.done, route.total, route.struggling ? 1 : 0,
-                                     route.style.empty() ? "-" : route.style, route.headTo);
+                                     route.style.empty() ? "-" : route.style, route.headTo,
+                                     craft.skill1, craft.skill2, craft.craft.empty() ? 0 : 1);
             return true;
         }
         if (sub == "event" && words.size() > 2 && words[1] == "fake")

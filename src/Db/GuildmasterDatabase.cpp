@@ -20,12 +20,13 @@ void GuildmasterDatabaseConnection::DoPrepareStatements()
     PrepareStatement(GM_REP_BOT_STATE,
                      "REPLACE INTO bot_state (guid, name, guild_id, online, level, class, race, gender, map, zone, area, "
                      "x, y, z, alive, ghost, hp_pct, durability_pct, money, activity, focus, prof1, prof2, in_group, "
-                     "run_id, held, route_hub, route_done, route_total, struggling, route_style, guided, updated_at) "
+                     "run_id, held, route_hub, route_done, route_total, struggling, route_style, guided, prof1_skill, "
+                     "prof2_skill, craft, updated_at) "
                      "VALUES "
                      "(?, ?, ?, 1, "
                      "?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
                      "?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
-                     "NULLIF(?, 0), ?, NULLIF(?, ''), ?, ?, ?, NULLIF(?, ''), ?, ?)",
+                     "NULLIF(?, 0), ?, NULLIF(?, ''), ?, ?, ?, NULLIF(?, ''), ?, ?, ?, NULLIF(?, ''), ?)",
                      CONNECTION_ASYNC);
     PrepareStatement(GM_INS_ROUTE_HUB,
                      "INSERT INTO route_hubs (hub_id, name, faction, map, zone, area, min_level, level, max_level, "
@@ -72,7 +73,7 @@ void GuildmasterDatabaseConnection::DoPrepareStatements()
                      "area, x, y, z, alive, ghost, hp_pct, durability_pct, money, activity, focus, in_group, held, "
                      "updated_at) VALUES (?, ?, ?, 0, ?, ?, ?, ?, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '-', ?, 0, ?, ?) "
                      "AS new ON DUPLICATE KEY UPDATE online = 0, guild_id = new.guild_id, held = new.held, "
-                     "focus = new.focus, in_group = 0, run_id = NULL, struggling = 0, guided = 0, "
+                     "focus = new.focus, in_group = 0, run_id = NULL, struggling = 0, guided = 0, craft = NULL, "
                      "updated_at = new.updated_at",
                      CONNECTION_ASYNC);
     PrepareStatement(GM_UPD_WORLD_STATUS,

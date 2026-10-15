@@ -64,6 +64,15 @@ ProfessionState GetProfessionState(Player* bot);
 // World thread. The picker keeps a stored pair; a lone first is kept and only its partner is rolled.
 void PresetProfessions(uint32 guid, uint32 first, uint32 second);
 uint32 StoredProfession(uint32 guid, bool second);  // world thread; for `bridge bot` and bot_state
+// World of Craft (Plan 6a). World thread. The skill values of its two professions and, on a craft trip, the item it
+// is making now ("" otherwise; "an enchant" for an enchant).
+struct CraftInfo
+{
+    uint16 skill1 = 0;
+    uint16 skill2 = 0;
+    std::string craft;
+};
+CraftInfo CraftOf(Player* bot, uint32 prof1, uint32 prof2);
 // Startup only (sync): the fork reads the bot's stored values (presets, ...) into its cache now. Its first write of
 // a value for a bot whose cache is not loaded yet marks the cache loaded without reading, which would hide values
 // stored by an earlier boot (AddToPopulation is such a write).
@@ -73,7 +82,7 @@ void LoadStoredValues(uint32 guid);
 // world-thread hooks run after the map threads have finished their update (preflight / Task 4 ruling).
 std::string RpgStatusName(Player* bot);  // "DO_QUEST", "IDLE", ... (contract §5) or "-" when it has no bot AI
 uint8 DurabilityPct(Player* bot);        // 0-100 (playerbots "durability" value), 100 without AI
-uint8 GetFocus(Player* bot);             // fork NewRpgInfo::focus (0-5), 0 without AI
+uint8 GetFocus(Player* bot);             // fork NewRpgInfo::focus (0-6), 0 without AI
 void SetFocus(Player* bot, uint8 focus);  // the fork forgets it at logout: the bridge re-applies it
 
 // Stuck-bot incidents (Task 13). World thread. The fork's counter lives in memory: it starts again at 0 at login.

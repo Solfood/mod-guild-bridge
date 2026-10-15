@@ -43,6 +43,10 @@ int main()
     focus.focus = "gathering";
     CHECK_EQ(std::string(""), ParseOrder(focus, out));
     CHECK_EQ(4, static_cast<int>(out.focus));
+    focus.focus = "crafting";  // World of Craft (Plan 6a): focus 6
+    CHECK_EQ(std::string(""), ParseOrder(focus, out));
+    CHECK_EQ(6, static_cast<int>(out.focus));
+    CHECK_EQ(std::string("crafting"), std::string(FocusName(Focus::Crafting)));
 
     OrderRow rank = Row("rank");
     rank.bot = "5";

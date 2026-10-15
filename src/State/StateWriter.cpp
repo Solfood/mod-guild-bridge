@@ -277,7 +277,13 @@ void StateWriter::WriteMembers(std::unordered_map<uint32, uint32> const& members
         stmt->SetData(28, static_cast<uint8>(route.struggling ? 1 : 0));
         stmt->SetData(29, route.style);
         stmt->SetData(30, static_cast<uint8>(route.guided ? 1 : 0));
-        stmt->SetData(31, now);
+        // World of Craft (Plan 6a): the profession skills, and the item it is making on a craft trip.
+        PlayerbotsAdapter::CraftInfo const craft = PlayerbotsAdapter::CraftOf(
+            bot, PlayerbotsAdapter::StoredProfession(guid, false), PlayerbotsAdapter::StoredProfession(guid, true));
+        stmt->SetData(31, craft.skill1);
+        stmt->SetData(32, craft.skill2);
+        stmt->SetData(33, craft.craft);
+        stmt->SetData(34, now);
         trans->Append(stmt);
         ++rows;
     }

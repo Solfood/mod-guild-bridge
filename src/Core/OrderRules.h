@@ -21,19 +21,19 @@ enum class OrderType
     Focus, Invite, Remove, Rank, PresetProfessions, RunDungeon, Snapshot, SnapshotAll, Restore, CreateGuild,
     CreateFounders, HeadTo, RouteStyle, Unknown
 };
-// Same numbers as the fork's NewRpgInfo::focus.
-enum class Focus : uint8_t { None = 0, Questing = 1, Grinding = 2, Pvp = 3, Gathering = 4, Resting = 5 };
+// Same numbers as the fork's NewRpgInfo::focus (6 = crafting, World of Craft part 1).
+enum class Focus : uint8_t { None = 0, Questing = 1, Grinding = 2, Pvp = 3, Gathering = 4, Resting = 5, Crafting = 6 };
 enum class Approach { Auto, Travel, Teleport };
 
 inline char const* FocusName(Focus focus)
 {
-    static char const* const names[] = {"none", "questing", "grinding", "pvp", "gathering", "resting"};
+    static char const* const names[] = {"none", "questing", "grinding", "pvp", "gathering", "resting", "crafting"};
     return names[static_cast<int>(focus)];
 }
 
 inline bool FocusFromName(std::string const& name, Focus& out)
 {
-    for (int i = 0; i <= 5; ++i)
+    for (int i = 0; i <= 6; ++i)
         if (name == FocusName(static_cast<Focus>(i)))
         {
             out = static_cast<Focus>(i);

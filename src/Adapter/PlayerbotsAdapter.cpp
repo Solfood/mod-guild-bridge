@@ -5,8 +5,10 @@
 #include "PlayerbotsAdapter.h"
 
 #include "AiFactory.h"
+#include "CraftMgr.h"
 #include "GuideMgr.h"
 #include "MotionMaster.h"
+#include "ObjectMgr.h"
 #include "Player.h"
 #include "PlayerbotAI.h"
 #include "PlayerbotAIConfig.h"
@@ -176,6 +178,21 @@ uint32 PlayerbotsAdapter::StoredProfession(uint32 guid, bool second)
     return sRandomPlayerbotMgr.GetValue(guid, second ? "secondSkill" : "firstSkill");
 }
 
+PlayerbotsAdapter::CraftInfo PlayerbotsAdapter::CraftOf(Player* bot, uint32 prof1, uint32 prof2)
+{
+    CraftInfo info;
+    info.skill1 = prof1 ? static_cast<uint16>(bot->GetSkillValue(prof1)) : 0;
+    info.skill2 = prof2 ? static_cast<uint16>(bot->GetSkillValue(prof2)) : 0;
+    PlayerbotAI* botAI = GET_PLAYERBOT_AI(bot);
+    auto const* trip = botAI ? std::get_if<NewRpgInfo::CraftTrip>(&botAI->rpgInfo.data) : nullptr;
+    if (!trip || trip->step >= trip->batch.size())
+        return info;
+    CraftRecipeInfo const* recipe = CraftMgr::instance().Recipe(trip->batch[trip->step].spell);
+    ItemTemplate const* proto = recipe && recipe->product ? sObjectMgr->GetItemTemplate(recipe->product) : nullptr;
+    info.craft = proto ? proto->Name1.substr(0, 48) : recipe && recipe->enchant ? "an enchant" : "";
+    return info;
+}
+
 // From the status enum (no ToString() text per bot: the 30 s pass reads every member; preflight D14).
 std::string PlayerbotsAdapter::RpgStatusName(Player* bot)
 {
@@ -196,6 +213,7 @@ std::string PlayerbotsAdapter::RpgStatusName(Player* bot)
         case RPG_DO_GATHER: return "DO_GATHER";
         case RPG_FOLLOW_ROUTE: return "FOLLOW_ROUTE";
         case RPG_FOLLOW_GUIDE: return "FOLLOW_GUIDE";  // Plan 5c: a guided bot on its levelling guide
+        case RPG_CRAFT: return "CRAFT";  // Plan 6a: a craft trip (bot_state.activity; the app says "crafting")
         default: return "-";
     }
 }

@@ -2,11 +2,12 @@
  * This file is part of mod-guild-bridge (Solfood/guildmaster). Released under GNU GPL v2 or later.
  * Hooks run on map threads: cheap reads of the objects they are given, one Push, nothing else.
  * Scope (contract §3): every type for members of our guilds (user and test); for other bots only level 80,
- * boss_kill and first. Test-guild and test-account bots never claim firsts.
+ * boss_kill, first and (any guilded bot) craft_skill. Test-guild and test-account bots never claim firsts.
  */
 
 #include "AchievementMgr.h"
 #include "BridgeConfig.h"
+#include "CraftNewsRules.h"
 #include "Creature.h"
 #include "EventSink.h"
 #include "Firsts.h"
@@ -90,7 +91,8 @@ public:
     BridgePlayerHooks()
         : PlayerScript("BridgePlayerHooks",
                        {PLAYERHOOK_ON_LEVEL_CHANGED, PLAYERHOOK_ON_LOOT_ITEM, PLAYERHOOK_ON_GROUP_ROLL_REWARD_ITEM,
-                        PLAYERHOOK_ON_PLAYER_KILLED_BY_CREATURE, PLAYERHOOK_ON_PVP_KILL, PLAYERHOOK_ON_ACHI_COMPLETE})
+                        PLAYERHOOK_ON_PLAYER_KILLED_BY_CREATURE, PLAYERHOOK_ON_PVP_KILL, PLAYERHOOK_ON_ACHI_COMPLETE,
+                        PLAYERHOOK_ON_UPDATE_SKILL, PLAYERHOOK_ON_CREATE_ITEM})
     {
     }
 
@@ -106,6 +108,32 @@ public:
         if (step && level % step == 0 && !IsTestCharacter(player))
             Firsts::Instance().Claim("level", level, player->GetGUID().GetCounter(), player->GetGuildId(),
                                      "First to level " + std::to_string(level));
+    }
+
+    // World of Craft (Plan 6a): a profession reached a milestone. News for our members and for every guilded bot
+    // (rival news, spec §5 "App").
+    void OnPlayerUpdateSkill(Player* player, uint32 skillId, uint32 value, uint32 /*max*/, uint32 /*step*/,
+                             uint32 newValue) override
+    {
+        if (!IsCraftNewsSkill(skillId) || !CraftMilestone(value, newValue))
+            return;
+        if (IsOurs(player) || player->GetGuildId())
+            PushFor(player, EventType::CraftSkill, CraftSkillPayload(skillId, newValue, WhereOf(player)));
+    }
+
+    // World of Craft (Plan 6a): a crafted piece of gear (the core calls this for an item a spell created). The first of
+    // an item on the server is a first (any non-test bot); our members' crafts are news.
+    void OnPlayerCreateItem(Player* player, Item* item, uint32 count) override
+    {
+        ItemTemplate const* proto = item ? item->GetTemplate() : nullptr;
+        if (!proto || proto->Quality < ITEM_QUALITY_UNCOMMON || proto->InventoryType == INVTYPE_NON_EQUIP)
+            return;
+        if (!IsTestCharacter(player))
+            Firsts::Instance().Claim("craft", proto->ItemId, player->GetGUID().GetCounter(), player->GetGuildId(),
+                                     "First to make " + proto->Name1);
+        if (IsOurs(player))
+            PushFor(player, EventType::Craft,
+                    CraftPayload(proto->ItemId, proto->Name1, proto->Quality, proto->ItemLevel, count));
     }
 
     void OnPlayerLootItem(Player* player, Item* item, uint32 count, ObjectGuid /*lootguid*/) override

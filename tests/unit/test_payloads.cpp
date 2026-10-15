@@ -1,5 +1,6 @@
 // tests/unit/test_payloads.cpp
 #include "../../src/Core/EventPayloads.h"
+#include "../../src/Core/CraftNewsRules.h"
 #include "check.h"
 #include <clocale>
 #include <cmath>
@@ -82,6 +83,22 @@ int main()
                                     "run_travel", "run_teleport", "run_ambush", "run_end", "restore", "fake"};
     for (int i = 0; i < 19; ++i)
         CHECK_EQ(std::string(expected[i]), std::string(EventTypeName(static_cast<EventType>(i))));
+    // World of Craft (Plan 6a): crafting news
+    CHECK_EQ(std::string("craft_skill"), std::string(EventTypeName(EventType::CraftSkill)));
+    CHECK_EQ(std::string("craft"), std::string(EventTypeName(EventType::Craft)));
+    CHECK_EQ(std::string("{\"skill\":164,\"value\":75,\"map\":389,\"zone\":2437,\"x\":1.3,\"y\":-2.0,\"z\":3.0}"),
+             CraftSkillPayload(164, 75, w));
+    CHECK_EQ(std::string("{\"item_entry\":2852,\"item_name\":\"Copper Bracers\",\"quality\":2,\"item_level\":7,"
+                         "\"count\":1}"),
+             CraftPayload(2852, "Copper Bracers", 2, 7, 1));
+    CHECK_EQ(true, CraftMilestone(74, 75));
+    CHECK_EQ(true, CraftMilestone(149, 151));
+    CHECK_EQ(false, CraftMilestone(75, 76));   // already past it
+    CHECK_EQ(false, CraftMilestone(10, 74));
+    CHECK_EQ(false, CraftMilestone(450, 450));
+    CHECK_EQ(true, IsCraftNewsSkill(164));
+    CHECK_EQ(true, IsCraftNewsSkill(185));     // cooking
+    CHECK_EQ(false, IsCraftNewsSkill(43));     // swords: a weapon skill, never news
     CHECK_EQ(std::string("?"), std::string(EventTypeName(EventType::Count)));
     CHECK_EQ(std::string("?"), std::string(EventTypeName(static_cast<EventType>(200))));
     return UnitFailures();
