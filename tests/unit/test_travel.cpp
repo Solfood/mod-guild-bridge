@@ -136,5 +136,14 @@ int main()
     CHECK_EQ(std::string("John was dead: the summons revived them"), SummonWarning("John", true, true, false));
     CHECK_EQ(std::string("Buddy was fighting: the summons pulled them out"), SummonWarning("Buddy", false, true, false));
     CHECK_EQ(std::string(""), SummonWarning("Pip", false, false, false));
+    // Two spec tanks: the lowest guid takes seat 0 whatever the class (dungeon-clear elects the lowest-guid tank-reading
+    // bot as leader, and `dc on` only takes on it): blood DK guid 100 beats protection warrior guid 200.
+    SeatSpec dk = seat("Dk", 6, 0), pw = seat("PW", 1, 2);
+    dk.guid = 100;
+    pw.guid = 200;
+    p = ArrangeParty({pw, dk, seat("Pri", 5, 1), seat("Dan", 8, 0), seat("Dot", 8, 0)});
+    CHECK_TRUE(p.roles[1] == Role::Tank && !p.switching[1] && p.order[0] == 1);
+    p = ArrangeParty({dk, pw, seat("Pri", 5, 1), seat("Dan", 8, 0), seat("Dot", 8, 0)});
+    CHECK_TRUE(p.roles[0] == Role::Tank && p.order[0] == 0);
     return UnitFailures();
 }

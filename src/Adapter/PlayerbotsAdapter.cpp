@@ -68,33 +68,33 @@ RoleSets SetsFor(Player* player, GuildBridge::Role role)
     switch (player->getClass())
     {
         case CLASS_WARRIOR:  // tank only
-            return {"-arms,-fury,-dps assist,+tank,+tank assist,+pull,+pull back,+aoe,+tank face",
+            return {"-behind,-arms,-fury,-dps assist,+tank,+tank assist,+pull,+pull back,+aoe,+tank face",
                     "-dps assist,+tank assist,+pull"};
         case CLASS_PALADIN:
             if (tank)
-                return {"-heal,-dps,-baoe,-bcast,-dps assist,+tank,+tank assist,+pull,+pull back,+bthreat,+barmor,"
+                return {"-behind,-heal,-dps,-baoe,-bcast,-dps assist,+tank,+tank assist,+pull,+pull back,+bthreat,+barmor,"
                         "+cure,+tank face",
                         player->GetLevel() >= 20
                             ? "-dps assist,-bwisdom,-bcast,-baoe,+bthreat,+tank assist,+pull,+barmor,+bsanc,+cure"
                             : "-dps assist,-bwisdom,-bcast,-baoe,+bthreat,+tank assist,+pull,+barmor,+bmight,+cure"};
-            return {"-tank,-tank assist,-pull,-pull back,-bthreat,-barmor,-tank face,-dps,-baoe,+heal,+dps assist,"
+            return {"-behind,-tank,-tank assist,-pull,-pull back,-bthreat,-barmor,-tank face,-dps,-baoe,+heal,+dps assist,"
                     "+bcast,+cure,+save mana,+healer dps",
                     "-tank assist,-pull,-bthreat,-barmor,-bsanc,-bmight,-baoe,+dps assist,+bwisdom,+bcast,+cure"};
         case CLASS_DRUID:
             if (tank)
-                return {"-cat,-balance,-resto,-tranquility,-cc,-aoe,-dps assist,+bear,+tank assist,+pull,+pull back,"
+                return {"-behind,-cat,-balance,-resto,-tranquility,-cc,-aoe,-dps assist,+bear,+tank assist,+pull,+pull back,"
                         "+feral charge,+tank face",
                         "-dps assist,+tank assist,+pull"};
-            return {"-cat,-bear,-balance,-tank assist,-pull,-pull back,-tank face,-feral charge,+resto,+cure,"
+            return {"-behind,-cat,-bear,-balance,-tank assist,-pull,-pull back,-tank face,-feral charge,+resto,+cure,"
                     "+dps assist,+tranquility,+save mana,+healer dps",
                     "-tank assist,-pull,+dps assist,+cure"};
         case CLASS_DEATH_KNIGHT:  // tank only
-            return {"-frost,-unholy,-frost aoe,-unholy aoe,-dps assist,+blood,+tank assist,+pull,+pull back,+tank face",
+            return {"-behind,-frost,-unholy,-frost aoe,-unholy aoe,-dps assist,+blood,+tank assist,+pull,+pull back,+tank face",
                     "-dps assist,+tank assist,+pull"};
         case CLASS_PRIEST:  // heal only
-            return {"-dps,-shadow debuff,-shadow aoe,-holy dps,+heal,+cure,+dps assist,+save mana,+healer dps", ""};
+            return {"-behind,-dps,-shadow debuff,-shadow aoe,-holy dps,+heal,+cure,+dps assist,+save mana,+healer dps", ""};
         case CLASS_SHAMAN:  // heal only
-            return {"-ele,-enh,-strength of earth,-magma,-healing stream,-windfury,-wrath,+resto,+stoneskin,"
+            return {"-behind,-ele,-enh,-strength of earth,-magma,-healing stream,-windfury,-wrath,+resto,+stoneskin,"
                     "+flametongue,+mana spring,+wrath of air,+dps assist,+cure,+aoe,+save mana,+healer dps",
                     ""};
         default:
@@ -109,6 +109,9 @@ void PlayerbotsAdapter::ApplyRole(Player* player, GuildBridge::Role role)
     if (!botAI || role == GuildBridge::Role::Dps)
         return;
     RoleSets const sets = SetsFor(player, role);
+    // A shadow priest keeps Shadowform (blocks Holy spells) unless it is taken off: Shadowform 15473.
+    if (role == GuildBridge::Role::Heal && player->getClass() == CLASS_PRIEST)
+        player->RemoveAurasDueToSpell(15473);
     if (*sets.combat)
         botAI->ChangeStrategy(sets.combat, BOT_STATE_COMBAT);
     if (*sets.nonCombat)

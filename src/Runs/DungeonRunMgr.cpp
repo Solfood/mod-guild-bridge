@@ -605,7 +605,10 @@ void DungeonRunMgr::EnsureRoles(Run& run)
         if (!bot || !bot->IsInWorld() || !PlayerbotsAdapter::IsBot(bot))
             continue;
         if (PlayerbotsAdapter::RoleHeld(bot, m.assigned))
+        {
+            m.roleTries = 0;  // it holds: a later reset gets a fresh set of tries (the cap only stops a loop)
             continue;
+        }
         if (m.roleTries >= 8)
         {
             if (m.roleTries == 8)

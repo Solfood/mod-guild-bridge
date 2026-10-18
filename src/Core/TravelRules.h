@@ -196,8 +196,8 @@ inline PartyPlan ArrangeParty(std::vector<SeatSpec> const& seats)
     plan.roles.assign(n, Role::Dps);
     plan.switching.assign(n, false);
     std::size_t bestTank = none, bestHeal = none;
-    // score: lower is better. (no healer, switches, tank rank, heal rank, tank guid, heal guid)
-    std::array<long long, 6> bestScore{};
+    // score: lower is better. (no healer, switches, spec-tank guid, tank rank, heal rank, tank guid, heal guid)
+    std::array<long long, 7> bestScore{};
     for (std::size_t t = 0; t < n; ++t)
     {
         if (TankRank(seats[t]) < 0)
@@ -207,7 +207,10 @@ inline PartyPlan ArrangeParty(std::vector<SeatSpec> const& seats)
             if (h == t || (h < n && HealRank(seats[h]) < 0))
                 continue;
             long long switches = (CurrentRole(seats[t]) != Role::Tank) + (h < n && CurrentRole(seats[h]) != Role::Heal);
-            std::array<long long, 6> score = {h == n ? 1 : 0, switches, TankRank(seats[t]),
+            // Among members who already read as tank the lowest guid goes first, before class rank: it is the bot
+            // mod-dungeon-clear elects as leader (lowest guid among tank-reading bots), and `dc on` only takes on it.
+            long long const specTank = CurrentRole(seats[t]) == Role::Tank ? seats[t].guid : (1LL << 40);
+            std::array<long long, 7> score = {h == n ? 1 : 0, switches, specTank, TankRank(seats[t]),
                                               h < n ? HealRank(seats[h]) : 0, seats[t].guid,
                                               h < n ? seats[h].guid : 0};
             if (bestTank == none || score < bestScore)
