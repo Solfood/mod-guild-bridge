@@ -19,6 +19,7 @@
 #include "Map.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
+#include "Pet.h"
 #include "Player.h"
 #include "PlayerbotsAdapter.h"
 #include "RestoreMgr.h"
@@ -53,6 +54,45 @@ std::string ReadTail(std::string path)
     std::streamoff const from = size > (4 << 20) ? size - (4 << 20) : 0;
     in.seekg(from);
     return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+}
+
+// Spell 15007: resurrection sickness. Our rule (user, 2026-10-17): the summons never leaves it on anyone.
+constexpr uint32 SPELL_RESURRECTION_SICKNESS = 15007;
+
+// Take one unit out of combat: stop its attack and casting, end every combat reference (which also drops the
+// threat both ways, so the mobs lose it from their lists) and remove it from every threat list.
+void DropCombat(Unit* unit)
+{
+    unit->CombatStop(true);
+    unit->GetThreatMgr().RemoveMeFromThreatLists();
+    unit->GetThreatMgr().ClearAllThreat();
+}
+
+// The guild's summons for one member: revive the dead (ghost or corpse) in place with full health and mana and no
+// sickness, and take the fighting out of combat, its pet too. Returns what it did ("" = nothing).
+std::string Summon(Player* bot)
+{
+    std::string did;
+    if (!bot->IsAlive())
+    {
+        bot->ResurrectPlayer(1.0f, false);  // false: no resurrection sickness
+        bot->RemoveAurasDueToSpell(SPELL_RESURRECTION_SICKNESS);  // none from this revive; clears an older one
+        bot->SpawnCorpseBones();            // a released ghost leaves its corpse behind: turn it into bones
+        did = "revived";
+    }
+    if (bot->IsAlive() && (bot->IsInCombat() || bot->IsPetInCombat()))
+    {
+        DropCombat(bot);
+        if (Pet* pet = bot->GetPet())
+        {
+            pet->AttackStop();
+            DropCombat(pet);
+            pet->ClearInPetCombat();
+        }
+        bot->ClearInPetCombat();
+        did += did.empty() ? "pulled out of combat" : " and pulled out of combat";
+    }
+    return did;
 }
 
 bool NearSpot(Player* bot, Spot const& spot, float radius)
@@ -153,6 +193,7 @@ void DungeonRunMgr::Begin(ParsedOrder const& order, std::function<void(OrderResu
     std::vector<SeatSpec> seats;  // as playerbots' strategy assignment reads them (what dungeon-clear sees)
     TeamId team = TEAM_NEUTRAL;
     bool allTest = true;
+    std::vector<std::string> summonWarnings;  // who the guild's summons revives or pulls out of combat
     for (std::size_t i = 0; i < 5; ++i)
     {
         uint32 const guid = order.party[i];
@@ -178,10 +219,12 @@ void DungeonRunMgr::Begin(ParsedOrder const& order, std::function<void(OrderResu
             return finish({false, "bot is offline: " + name, ""});
         if (!PlayerbotsAdapter::IsBot(bot))
             return finish({false, "a player is logged in on that character: " + name, ""});
-        if (!bot->IsAlive())
-            return finish({false, "bot is dead: " + name, ""});
-        if (bot->IsInCombat())
-            return finish({false, "bot is in combat: " + name, ""});
+        // Dead and fighting members are not refused: the summons (below, once everything else has passed) revives
+        // them and pulls them out of combat. The dry run only says so.
+        bool const dead = !bot->IsAlive();
+        bool const fighting = !dead && bot->IsInCombat();
+        if (dead || fighting)
+            summonWarnings.push_back(SummonWarning(name, dead, fighting, order.dryRun));
         if (bot->InBattleground() || bot->GetMap()->IsBattlegroundOrArena())
             return finish({false, "bot is in a battleground: " + name, ""});
         if (bot->IsInFlight())
@@ -222,7 +265,8 @@ void DungeonRunMgr::Begin(ParsedOrder const& order, std::function<void(OrderResu
     }
     run->members = std::move(ordered);
 
-    std::vector<std::string> const& warnings = plan.warnings;
+    std::vector<std::string> warnings = plan.warnings;
+    warnings.insert(warnings.end(), summonWarnings.begin(), summonWarnings.end());
     run->warningsJson = "[";
     for (std::size_t i = 0; i < warnings.size(); ++i)
     {
@@ -346,6 +390,16 @@ void DungeonRunMgr::Step(Run& run, uint32 diff)
             return;
         case Stage::Approach:
         {
+            // The guild's summons, before the party sets out (travel or teleport): whoever is dead or fighting now
+            // is revived / taken out of combat. Done here, after every refusal check and the snapshots, so a refused
+            // order changed nothing. A travelling bot is revived at the spot where it lies, then walks.
+            for (Member const& m : run.members)
+                if (Player* bot = Connected(m.guid))
+                {
+                    std::string const did = bot->IsInWorld() ? Summon(bot) : std::string();
+                    if (!did.empty())
+                        LOG_INFO("module.guildbridge", "dungeon run {}: the summons: {} {}", run.id, m.name, did);
+                }
             if (run.choice.approach == Approach::Travel)
             {
                 EventSink::Instance().Push(EventType::RunTravel, 0, run.guildId, run.id,

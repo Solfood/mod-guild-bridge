@@ -170,6 +170,18 @@ inline PartyPlan ArrangeParty(std::vector<SeatSpec> const& seats)
         }
     return plan;
 }
+
+// "The guild's summons": a member who is dead or in combat when a run starts is revived / pulled out of combat
+// instead of refusing the order. This is the warning line about one member. A dry run says what the summons will
+// do; a real run says what it did (the bridge does it just before the party sets out).
+inline std::string SummonWarning(std::string const& name, bool dead, bool fighting, bool dryRun)
+{
+    if (dead)
+        return name + (dryRun ? " is dead: the summons revives them" : " was dead: the summons revived them");
+    if (fighting)
+        return name + (dryRun ? " is fighting: the summons pulls them out" : " was fighting: the summons pulled them out");
+    return "";
+}
 }  // namespace GuildBridge
 
 #endif

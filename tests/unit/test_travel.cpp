@@ -73,5 +73,11 @@ int main()
     p = ArrangeParty({seat("Arms", 1, 0), seat("Hal", 11, 2), seat("Cat", 11, 1, 30, true), seat("Dan", 8, 0),
                       seat("Dot", 8, 0)});
     CHECK_EQ(std::string("no tank in this party: no member has a tank spec"), p.problem);
+    // The summons: dead beats fighting; a healthy member gets no line.
+    CHECK_EQ(std::string("Buddy is fighting: the summons pulls them out"), SummonWarning("Buddy", false, true, true));
+    CHECK_EQ(std::string("John is dead: the summons revives them"), SummonWarning("John", true, false, true));
+    CHECK_EQ(std::string("John was dead: the summons revived them"), SummonWarning("John", true, true, false));
+    CHECK_EQ(std::string("Buddy was fighting: the summons pulled them out"), SummonWarning("Buddy", false, true, false));
+    CHECK_EQ(std::string(""), SummonWarning("Pip", false, false, false));
     return UnitFailures();
 }
