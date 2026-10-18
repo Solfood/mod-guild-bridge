@@ -38,9 +38,87 @@ GuildBridge::SeatSpec PlayerbotsAdapter::SeatSpecOf(Player* player)
     spec.cls = player->getClass();
     spec.tab = AiFactory::GetPlayerSpecTab(player);
     spec.level = player->GetLevel();
+    spec.guid = static_cast<uint32_t>(player->GetGUID().GetCounter());
     spec.hasCatForm = player->HasSpell(768);      // Cat Form (AiFactory SPELL_CAT_FORM)
     spec.hasThickHide = player->HasAura(16931);   // Thick Hide (AiFactory SPELL_DRUID_THICK_HIDE)
     return spec;
+}
+
+bool PlayerbotsAdapter::RoleHeld(Player* player, GuildBridge::Role role)
+{
+    if (role == GuildBridge::Role::Dps)
+        return true;  // nothing to switch to: the rest play the strategies they have
+    return role == GuildBridge::Role::Tank ? PlayerbotAI::IsTank(player, false) : PlayerbotAI::IsHeal(player, false);
+}
+
+namespace
+{
+// Strategy sets, in playerbots' own names (Ai/Base AiFactory::AddDefaultCombatStrategies / AddDefaultNonCombatStrategies
+// for the spec that has that role). A '-' first removes what the other specs of the class add, then the role's set is
+// added; PlayerbotAI::ChangeStrategy takes "+name,-name" lists. Order: combat engine, non-combat engine.
+struct RoleSets
+{
+    char const* combat;
+    char const* nonCombat;
+};
+
+RoleSets SetsFor(Player* player, GuildBridge::Role role)
+{
+    bool const tank = role == GuildBridge::Role::Tank;
+    switch (player->getClass())
+    {
+        case CLASS_WARRIOR:  // tank only
+            return {"-arms,-fury,-dps assist,+tank,+tank assist,+pull,+pull back,+aoe,+tank face",
+                    "-dps assist,+tank assist,+pull"};
+        case CLASS_PALADIN:
+            if (tank)
+                return {"-heal,-dps,-baoe,-bcast,-dps assist,+tank,+tank assist,+pull,+pull back,+bthreat,+barmor,"
+                        "+cure,+tank face",
+                        player->GetLevel() >= 20
+                            ? "-dps assist,-bwisdom,-bcast,-baoe,+bthreat,+tank assist,+pull,+barmor,+bsanc,+cure"
+                            : "-dps assist,-bwisdom,-bcast,-baoe,+bthreat,+tank assist,+pull,+barmor,+bmight,+cure"};
+            return {"-tank,-tank assist,-pull,-pull back,-bthreat,-barmor,-tank face,-dps,-baoe,+heal,+dps assist,"
+                    "+bcast,+cure,+save mana,+healer dps",
+                    "-tank assist,-pull,-bthreat,-barmor,-bsanc,-bmight,-baoe,+dps assist,+bwisdom,+bcast,+cure"};
+        case CLASS_DRUID:
+            if (tank)
+                return {"-cat,-balance,-resto,-tranquility,-cc,-aoe,-dps assist,+bear,+tank assist,+pull,+pull back,"
+                        "+feral charge,+tank face",
+                        "-dps assist,+tank assist,+pull"};
+            return {"-cat,-bear,-balance,-tank assist,-pull,-pull back,-tank face,-feral charge,+resto,+cure,"
+                    "+dps assist,+tranquility,+save mana,+healer dps",
+                    "-tank assist,-pull,+dps assist,+cure"};
+        case CLASS_DEATH_KNIGHT:  // tank only
+            return {"-frost,-unholy,-frost aoe,-unholy aoe,-dps assist,+blood,+tank assist,+pull,+pull back,+tank face",
+                    "-dps assist,+tank assist,+pull"};
+        case CLASS_PRIEST:  // heal only
+            return {"-dps,-shadow debuff,-shadow aoe,-holy dps,+heal,+cure,+dps assist,+save mana,+healer dps", ""};
+        case CLASS_SHAMAN:  // heal only
+            return {"-ele,-enh,-strength of earth,-magma,-healing stream,-windfury,-wrath,+resto,+stoneskin,"
+                    "+flametongue,+mana spring,+wrath of air,+dps assist,+cure,+aoe,+save mana,+healer dps",
+                    ""};
+        default:
+            return {"", ""};
+    }
+}
+}  // namespace
+
+void PlayerbotsAdapter::ApplyRole(Player* player, GuildBridge::Role role)
+{
+    PlayerbotAI* botAI = GET_PLAYERBOT_AI(player);
+    if (!botAI || role == GuildBridge::Role::Dps)
+        return;
+    RoleSets const sets = SetsFor(player, role);
+    if (*sets.combat)
+        botAI->ChangeStrategy(sets.combat, BOT_STATE_COMBAT);
+    if (*sets.nonCombat)
+        botAI->ChangeStrategy(sets.nonCombat, BOT_STATE_NON_COMBAT);
+}
+
+void PlayerbotsAdapter::ResetStrategiesToDefault(Player* player)
+{
+    if (PlayerbotAI* botAI = GET_PLAYERBOT_AI(player))
+        botAI->ResetStrategies();
 }
 
 // Masterless logins are owned by sRandomPlayerbotMgr (the same path mod-dungeon-clear's headless driver uses).

@@ -69,10 +69,67 @@ int main()
     p = ArrangeParty({seat("Hal", 11, 2), seat("Tom", 1, 2), seat("Dee", 8, 0), seat("Dan", 8, 0), seat("Dot", 8, 0)});
     CHECK_EQ(std::string(""), p.problem);
     CHECK_TRUE((p.order == std::vector<std::size_t>{1, 0, 2, 3, 4}));
-    // No tank at all: refused.
+    // Role assignment (GM-BRIDGE-0073): roles by what the CLASS can do; the current spec preferred when it fits.
+    // No class that can tank (priest, mage, shaman, rogue, hunter): refused.
+    p = ArrangeParty({seat("Pri", 5, 1), seat("Hal", 7, 2), seat("Mia", 8, 0), seat("Dan", 8, 0), seat("Rue", 4, 0)});
+    CHECK_EQ(std::string("no tank in this party: no member can tank"), p.problem);
+    // A druid below level 10 has no Bear Form: it cannot tank.
+    p = ArrangeParty({seat("Pri", 5, 1), seat("Kit", 11, 1, 8), seat("Mia", 8, 0), seat("Dan", 8, 0), seat("Rue", 4, 0)});
+    CHECK_EQ(std::string("no tank in this party: no member can tank"), p.problem);
+    // An arms warrior is a tank by class (switching from dps); the resto druid already heals.
     p = ArrangeParty({seat("Arms", 1, 0), seat("Hal", 11, 2), seat("Cat", 11, 1, 30, true), seat("Dan", 8, 0),
                       seat("Dot", 8, 0)});
-    CHECK_EQ(std::string("no tank in this party: no member has a tank spec"), p.problem);
+    CHECK_EQ(std::string(""), p.problem);
+    CHECK_TRUE((p.order == std::vector<std::size_t>{0, 1, 2, 3, 4}));
+    CHECK_TRUE(p.roles[0] == Role::Tank && p.roles[1] == Role::Heal && p.roles[2] == Role::Dps);
+    CHECK_TRUE(p.switching[0] && !p.switching[1]);
+    CHECK_EQ(static_cast<std::size_t>(1), p.warnings.size());
+    CHECK_EQ(std::string("Arms tanks (warrior, switching from dps)"), p.warnings.at(0));
+    // All-dps hybrids: warrior + paladin (ret) + priest (shadow): the warrior tanks (class preference, one switch each
+    // way), the priest heals. Nobody fits, so the preference decides.
+    p = ArrangeParty({seat("Ret", 2, 2), seat("Shad", 5, 2), seat("War", 1, 0), seat("Mia", 8, 0), seat("Dan", 8, 0)});
+    CHECK_TRUE(p.roles[2] == Role::Tank && p.roles[1] == Role::Heal && p.roles[0] == Role::Dps);
+    CHECK_TRUE((p.order == std::vector<std::size_t>{2, 1, 0, 3, 4}));
+    CHECK_EQ(static_cast<std::size_t>(3), p.warnings.size());  // War tanks, Shad heals, reordered
+    CHECK_EQ(std::string("War tanks (warrior, switching from dps)"), p.warnings.at(0));
+    CHECK_EQ(std::string("Shad heals (priest, switching from dps)"), p.warnings.at(1));
+    // Two possible tanks: the warrior beats the paladin by class preference...
+    p = ArrangeParty({seat("Pal", 2, 2), seat("War", 1, 0), seat("Dee", 8, 0), seat("Dan", 8, 0), seat("Dot", 8, 0)});
+    CHECK_TRUE(p.roles[1] == Role::Tank && p.roles[0] == Role::Heal);  // ...and the paladin heals (one switch fewer than nothing)
+    // ...but a protection paladin that already tanks keeps the job over a dps warrior (current spec preferred).
+    p = ArrangeParty({seat("War", 1, 0), seat("Prot", 2, 1), seat("Dee", 8, 0), seat("Pri", 5, 0), seat("Dot", 8, 0)});
+    CHECK_TRUE(p.roles[1] == Role::Tank && p.roles[3] == Role::Heal && p.roles[0] == Role::Dps);
+    CHECK_TRUE(!p.switching[1] && !p.switching[3]);
+    // Tank and heal only possible from one paladin: it tanks, no healer, a warning (not a refusal).
+    p = ArrangeParty({seat("Pal", 2, 2), seat("Dee", 8, 0), seat("Dan", 8, 0), seat("Dot", 8, 0), seat("Rue", 4, 0)});
+    CHECK_EQ(std::string(""), p.problem);
+    CHECK_TRUE(p.roles[0] == Role::Tank);
+    CHECK_EQ(std::string("Pal tanks (paladin, switching from dps)"), p.warnings.at(0));
+    CHECK_EQ(std::string("no healer in this party"), p.warnings.at(1));
+    // A paladin that heals now keeps healing when a druid can tank (a druid at 30 with Cat Form: bear is a switch).
+    p = ArrangeParty({seat("Holy", 2, 0), seat("Cat", 11, 1, 30, true), seat("Dee", 8, 0), seat("Dan", 8, 0), seat("Dot", 8, 0)});
+    CHECK_TRUE(p.roles[1] == Role::Tank && p.roles[0] == Role::Heal);
+    CHECK_TRUE(p.switching[1] && !p.switching[0]);
+    CHECK_EQ(std::string("Cat tanks (druid, switching from dps)"), p.warnings.at(0));
+    // Druid: a feral-tank druid tanks and a priest heals (nobody switches); a lone resto druid with a dps warrior:
+    // the warrior tanks, the druid heals.
+    p = ArrangeParty({seat("Bear", 11, 1, 15), seat("Pri", 5, 1), seat("Dee", 8, 0), seat("Dan", 8, 0), seat("Dot", 8, 0)});
+    CHECK_TRUE(p.roles[0] == Role::Tank && p.roles[1] == Role::Heal && !p.switching[0] && !p.switching[1]);
+    CHECK_EQ(static_cast<std::size_t>(0), p.warnings.size());
+    p = ArrangeParty({seat("Dee", 8, 0), seat("Resto", 11, 2), seat("War", 1, 0), seat("Dan", 8, 0), seat("Dot", 8, 0)});
+    CHECK_TRUE(p.roles[2] == Role::Tank && p.roles[1] == Role::Heal);
+    // Death knight: blood tanks as is; a frost DK is the tank of last resort (after warrior, paladin, druid).
+    p = ArrangeParty({seat("Dk", 6, 0), seat("Pri", 5, 1), seat("Dee", 8, 0), seat("Dan", 8, 0), seat("Dot", 8, 0)});
+    CHECK_TRUE(p.roles[0] == Role::Tank && !p.switching[0]);
+    p = ArrangeParty({seat("Dk", 6, 1), seat("Pri", 5, 1), seat("Dee", 8, 0), seat("Dan", 8, 0), seat("Dot", 8, 0)});
+    CHECK_TRUE(p.roles[0] == Role::Tank && p.switching[0]);
+    CHECK_EQ(std::string("Dk tanks (death knight, switching from dps)"), p.warnings.at(0));
+    // Equal choices: the lowest guid (mod-dungeon-clear's own tie-break).
+    SeatSpec w1 = seat("W1", 1, 2), w2 = seat("W2", 1, 2);
+    w1.guid = 20;
+    w2.guid = 10;
+    p = ArrangeParty({w1, w2, seat("Dee", 8, 0), seat("Dan", 8, 0), seat("Dot", 8, 0)});
+    CHECK_TRUE(p.roles[1] == Role::Tank && p.roles[0] == Role::Dps);
     // The summons: dead beats fighting; a healthy member gets no line.
     CHECK_EQ(std::string("Buddy is fighting: the summons pulls them out"), SummonWarning("Buddy", false, true, true));
     CHECK_EQ(std::string("John is dead: the summons revives them"), SummonWarning("John", true, false, true));

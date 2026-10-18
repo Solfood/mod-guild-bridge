@@ -34,7 +34,6 @@ using namespace GuildBridge;
 
 namespace
 {
-char const* const ROLES[5] = {"tank", "heal", "dps", "dps", "dps"};
 uint32 Now() { return static_cast<uint32>(std::time(nullptr)); }
 
 // A run member as the run sees it: nullptr = offline (logged out). A bot between maps (a far teleport) is still
@@ -235,7 +234,7 @@ void DungeonRunMgr::Begin(ParsedOrder const& order, std::function<void(OrderResu
             return finish({false, "party spans both factions", ""});
         spots.push_back({bot->GetMapId(), bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ()});
         levels.emplace_back(name, bot->GetLevel());
-        seats.push_back(PlayerbotsAdapter::SeatSpecOf(bot));
+        seats.push_back(PlayerbotsAdapter::SeatSpecOf(bot));  // role assignment: roles go by class, see ArrangeParty
         Member member;
         member.guid = guid;
         member.name = name;
@@ -260,8 +259,10 @@ void DungeonRunMgr::Begin(ParsedOrder const& order, std::function<void(OrderResu
     for (std::size_t i = 0; i < plan.order.size(); ++i)
     {
         ordered.push_back(run->members[plan.order[i]]);
-        // Seat 1 is "heal" only when a healer was found; without one it is a dps like the rest.
-        ordered.back().role = i == 1 && !ReadsAsHealer(seats[plan.order[1]]) ? "dps" : ROLES[i];
+        ordered.back().assigned = plan.roles[plan.order[i]];
+        ordered.back().switching = plan.switching[plan.order[i]];
+        // Seat 0 is the tank, seat 1 the healer when one was found (otherwise a dps like the rest).
+        ordered.back().role = RoleWord(ordered.back().assigned);
     }
     run->members = std::move(ordered);
 
@@ -454,6 +455,9 @@ void DungeonRunMgr::Step(Run& run, uint32 diff)
             Handover(run, diff);
             return;
         case Stage::Monitor:
+            EnsureRoles(run);
+            Monitor(run, diff);
+            return;
         case Stage::ReadResult:
             Monitor(run, diff);
             return;
@@ -586,6 +590,38 @@ void DungeonRunMgr::Handover(Run& run, uint32 diff)
     }
 }
 
+// Role assignment. mod-dungeon-clear resets every member's strategies from its talents when it takes the party (roster
+// step), and elects its leader among bots whose strategies read as tank only after that (`dc on`). So a switched
+// member's role strategies are set here, every world tick after dungeon-clear has the party: right after its reset they
+// are missing, so they are applied again (a reset is not a run-ending event); once they hold the check is a lookup.
+// At most 8 applications per member per run, then a warning (never an endless Init() loop).
+void DungeonRunMgr::EnsureRoles(Run& run)
+{
+    for (Member& m : run.members)
+    {
+        if (!m.switching || m.assigned == GuildBridge::Role::Dps)
+            continue;
+        Player* bot = Connected(m.guid);
+        if (!bot || !bot->IsInWorld() || !PlayerbotsAdapter::IsBot(bot))
+            continue;
+        if (PlayerbotsAdapter::RoleHeld(bot, m.assigned))
+            continue;
+        if (m.roleTries >= 8)
+        {
+            if (m.roleTries == 8)
+                LOG_WARN("module.guildbridge", "dungeon run {}: {} keeps losing its {} strategies", run.id, m.name,
+                         GuildBridge::RoleWord(m.assigned));
+            ++m.roleTries;
+            continue;
+        }
+        ++m.roleTries;
+        PlayerbotsAdapter::ApplyRole(bot, m.assigned);
+        m.roleApplied = true;
+        LOG_INFO("module.guildbridge", "dungeon run {}: {} now plays {} (strategies switched, try {})", run.id, m.name,
+                 GuildBridge::RoleWord(m.assigned), m.roleTries);
+    }
+}
+
 // While dungeon-clear holds the tank the run is on. Then: wait for its logouts (so End can log the clones back in),
 // read its result line off the world thread and end the run with it.
 void DungeonRunMgr::Monitor(Run& run, uint32 diff)
@@ -643,7 +679,13 @@ void DungeonRunMgr::End(Run& run, std::string const& result, std::string const& 
         else if (!bot)
             PlayerbotsAdapter::LoginMasterless(ObjectGuid::Create<HighGuid::Player>(m.guid));
         if (bot && bot->IsInWorld())
+        {
             PlayerbotsAdapter::ClearGoTo(bot);
+            // Still online after a run that switched its strategies (an abort): back to its spec's own. Bots that
+            // dungeon-clear logged out come back with fresh strategies (playerbots does not save ChangeStrategy).
+            if (m.roleApplied)
+                PlayerbotsAdapter::ResetStrategiesToDefault(bot);
+        }
     }
     uint32 const now = Now();
     uint32 const wipes = RunRegistry::Instance().Wipes(run.id);

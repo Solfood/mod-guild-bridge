@@ -48,6 +48,10 @@ private:
         bool arrived = false;    // at the entrance (travel)
         bool travelled = false;  // got there by travelling, not by a teleport (preflight D15)
         uint32 deadMs = 0;
+        GuildBridge::Role assigned = GuildBridge::Role::Dps;  // role assignment: the role this member plays
+        bool switching = false;      // its strategies must change for that role (set up for another)
+        uint32 roleTries = 0;        // times the role strategies were applied this run (capped)
+        bool roleApplied = false;    // strategies were changed: End puts the spec's own back
     };
 
     struct Run
@@ -83,6 +87,7 @@ private:
     Run* Find(uint64 runId);  // nullptr once the run is over (callbacks capture the id, never a Run*: preflight D3)
     void Step(Run& run, uint32 diff);
     void TickTravel(Run& run);
+    void EnsureRoles(Run& run);            // while dungeon-clear sets up: keep switched members on their role
     void Handover(Run& run, uint32 diff);  // log the five out, start the dungeon-clear run
     void Monitor(Run& run, uint32 diff);   // until dungeon-clear releases the tank, then read its result line
     void End(Run& run, std::string const& result, std::string const& reason, uint32 bossesKilled, uint32 bossesTotal);

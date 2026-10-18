@@ -23,6 +23,14 @@ bool IsRandomBot(uint32 guid);          // a population bot (an "add" record on 
 // GuildBridge::ReadsAsTank/ReadsAsHealer: the roles mod-dungeon-clear sees after it resets the strategies. Not the
 // current form or strategies. World thread; player in the world.
 GuildBridge::SeatSpec SeatSpecOf(Player* player);
+// Role assignment (GM-BRIDGE-0073). World thread; player in the world with a bot brain.
+// RoleHeld: the bot's strategies already read as that role (PlayerbotAI::IsTank/IsHeal by strategy, what
+// mod-dungeon-clear's leader election asks). ApplyRole: switch the bot's combat and non-combat strategies to the
+// class's tank or heal set (talents untouched). Held only in memory (playerbots does not save ChangeStrategy):
+// ResetStrategiesToDefault puts the spec's own strategies back (what a login or dungeon-clear's roster step does).
+bool RoleHeld(Player* player, GuildBridge::Role role);
+void ApplyRole(Player* player, GuildBridge::Role role);
+void ResetStrategiesToDefault(Player* player);
 void LoginMasterless(ObjectGuid guid);  // log a character in as a bot with no master (clones, guild master)
 void Logout(ObjectGuid guid);           // log a bot out through whichever holder owns it
 bool IsMasterlessLoggedIn(ObjectGuid guid);  // the masterless login finished (playerbots' login steps done)

@@ -93,6 +93,7 @@ struct SeatSpec
     uint32_t level = 0;
     bool hasCatForm = false;    // knows Cat Form (768)
     bool hasThickHide = false;  // has the Thick Hide aura (16931)
+    uint32_t guid = 0;          // tie-break between equal choices (mod-dungeon-clear elects the lowest guid)
 };
 
 // A tank strategy (STRATEGY_TYPE_TANK in its combat or non-combat engine): what mod-dungeon-clear's leader election
@@ -124,41 +125,123 @@ inline bool ReadsAsHealer(SeatSpec const& s)
     }
 }
 
-// The party in role order. mod-dungeon-clear needs a tank (it elects its leader among tanks; without one `dc on`
-// silently does nothing) and nothing else, so: no tank = problem; otherwise order = tank first (the given first seat
-// if it is one), then a healer if there is one (the given second seat if it is one), then the rest as given.
-// Warnings: no healer, and the new order when it changed.
+enum class Role { Dps, Tank, Heal };
+
+inline char const* RoleWord(Role r) { return r == Role::Tank ? "tank" : r == Role::Heal ? "heal" : "dps"; }
+
+// The role a member is set up for now (what mod-dungeon-clear would see if nothing is changed).
+inline Role CurrentRole(SeatSpec const& s)
+{
+    return ReadsAsTank(s) ? Role::Tank : ReadsAsHealer(s) ? Role::Heal : Role::Dps;
+}
+
+// What the CLASS can do, whatever the spec. Warrior, paladin, death knight tank; a druid tanks in Bear Form (level 10).
+// Priest, paladin, druid, shaman heal. Order of preference (lower = first): tank warrior, paladin, druid, death
+// knight; heal priest, paladin, druid, shaman.
+inline int TankRank(SeatSpec const& s)
+{
+    switch (s.cls)
+    {
+        case 1: return 0;
+        case 2: return 1;
+        case 11: return s.level >= 10 ? 2 : -1;
+        case 6: return 3;
+        default: return -1;
+    }
+}
+
+inline int HealRank(SeatSpec const& s)
+{
+    switch (s.cls)
+    {
+        case 5: return 0;
+        case 2: return 1;
+        case 11: return 2;
+        case 7: return 3;
+        default: return -1;
+    }
+}
+
+inline char const* ClassWord(uint8_t cls)
+{
+    static char const* const names[12] = {"", "warrior", "paladin", "hunter", "rogue", "priest", "death knight",
+                                          "shaman", "mage", "warlock", "", "druid"};
+    // WotLK ids: 1 warrior 2 paladin 3 hunter 4 rogue 5 priest 6 death knight 7 shaman 8 mage 9 warlock 11 druid
+    return cls < 12 ? names[cls] : "";
+}
+
+// The party in role order. "Role assignment" (GM-BRIDGE-0073): the roles go by what each member's CLASS can do, not
+// by its current spec, but the current spec is preferred when it already fits. mod-dungeon-clear needs a tank (it
+// elects its leader among tanks; without one `dc on` silently does nothing) and nothing else, so: nobody's class can
+// tank = problem. Otherwise the pair (tank, healer) is chosen to have a healer if one can be had, then the fewest
+// members switching away from what they are set up for, then class preference (tank warrior > paladin > druid >
+// death knight; healer priest > paladin > druid > shaman), then the lowest guid (mod-dungeon-clear's own tie-break).
+// The rest are dps. order = tank, healer (if any), the rest as given.
+// Warnings: "<name> tanks|heals (<class>, switching from dps)" for each member who has to change role (their
+// strategies are switched for the run, talents are not touched), no healer, and the new order when it changed.
 struct PartyPlan
 {
     std::string problem;
     std::vector<std::size_t> order;
     std::vector<std::string> warnings;
+    std::vector<Role> roles;  // by input seat
+    std::vector<bool> switching;  // by input seat: the member's strategies must change for its role
 };
 
 inline PartyPlan ArrangeParty(std::vector<SeatSpec> const& seats)
 {
     PartyPlan plan;
-    std::size_t const none = seats.size();
-    std::size_t tank = none, heal = none;
-    for (std::size_t i = 0; i < seats.size() && tank == none; ++i)
-        if (ReadsAsTank(seats[i]))
-            tank = i;
-    if (tank == none)
+    std::size_t const n = seats.size();
+    std::size_t const none = n;
+    plan.roles.assign(n, Role::Dps);
+    plan.switching.assign(n, false);
+    std::size_t bestTank = none, bestHeal = none;
+    // score: lower is better. (no healer, switches, tank rank, heal rank, tank guid, heal guid)
+    std::array<long long, 6> bestScore{};
+    for (std::size_t t = 0; t < n; ++t)
     {
-        plan.problem = "no tank in this party: no member has a tank spec";
+        if (TankRank(seats[t]) < 0)
+            continue;
+        for (std::size_t h = 0; h <= n; ++h)
+        {
+            if (h == t || (h < n && HealRank(seats[h]) < 0))
+                continue;
+            long long switches = (CurrentRole(seats[t]) != Role::Tank) + (h < n && CurrentRole(seats[h]) != Role::Heal);
+            std::array<long long, 6> score = {h == n ? 1 : 0, switches, TankRank(seats[t]),
+                                              h < n ? HealRank(seats[h]) : 0, seats[t].guid,
+                                              h < n ? seats[h].guid : 0};
+            if (bestTank == none || score < bestScore)
+            {
+                bestTank = t;
+                bestHeal = h;
+                bestScore = score;
+            }
+        }
+    }
+    if (bestTank == none)
+    {
+        plan.problem = "no tank in this party: no member can tank";
         return plan;
     }
-    if (seats.size() > 1 && tank != 1 && ReadsAsHealer(seats[1]))
-        heal = 1;
-    for (std::size_t i = 0; i < seats.size() && heal == none; ++i)
-        if (i != tank && ReadsAsHealer(seats[i]))
-            heal = i;
+    std::size_t const tank = bestTank;
+    std::size_t const heal = bestHeal;  // n = none
+    plan.roles[tank] = Role::Tank;
+    plan.switching[tank] = CurrentRole(seats[tank]) != Role::Tank;
+    if (heal != none)
+    {
+        plan.roles[heal] = Role::Heal;
+        plan.switching[heal] = CurrentRole(seats[heal]) != Role::Heal;
+    }
     plan.order.push_back(tank);
     if (heal != none)
         plan.order.push_back(heal);
-    for (std::size_t i = 0; i < seats.size(); ++i)
+    for (std::size_t i = 0; i < n; ++i)
         if (i != tank && i != heal)
             plan.order.push_back(i);
+    for (std::size_t i : {tank, heal})
+        if (i != none && plan.switching[i])
+            plan.warnings.push_back(seats[i].name + (i == tank ? " tanks (" : " heals (") + ClassWord(seats[i].cls) +
+                                    ", switching from " + RoleWord(CurrentRole(seats[i])) + ")");
     if (heal == none)
         plan.warnings.push_back("no healer in this party");
     for (std::size_t i = 0; i < plan.order.size(); ++i)
