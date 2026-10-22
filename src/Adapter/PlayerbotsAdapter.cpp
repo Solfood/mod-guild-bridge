@@ -295,6 +295,7 @@ std::string PlayerbotsAdapter::RpgStatusName(Player* bot)
         case RPG_FOLLOW_ROUTE: return "FOLLOW_ROUTE";
         case RPG_FOLLOW_GUIDE: return "FOLLOW_GUIDE";  // Plan 5c: a guided bot on its levelling guide
         case RPG_CRAFT: return "CRAFT";  // Plan 6a: a craft trip (bot_state.activity; the app says "crafting")
+        case RPG_FISH: return "FISH";    // a fishing trip (the app says "fishing")
         default: return "-";
     }
 }
